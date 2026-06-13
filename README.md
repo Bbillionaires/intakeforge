@@ -50,6 +50,24 @@ IntakeForge is a single-user MVP that turns natural-language form requests into 
 
 ---
 
+## Quick start (Linux/macOS)
+
+```bash
+bash scripts/setup.sh
+# then in two terminals:
+cd backend && source .venv/bin/activate && uvicorn app.main:app --reload --port 8000
+cd frontend && npm run dev
+```
+
+Or with Docker Compose:
+
+```bash
+cp backend/.env.example backend/.env  # fill in credentials
+docker compose up
+```
+
+---
+
 ## PowerShell setup (Windows)
 
 ### 1) Backend setup
@@ -125,11 +143,19 @@ Open http://localhost:3000
 
 ---
 
+## AI Form Generation
+
+Set `ANTHROPIC_API_KEY` in `backend/.env` to enable Claude-powered form generation. When the key is present, the backend calls Claude (claude-haiku-4-5) via tool_use to produce context-aware sections and questions. Without a key the generator falls back to rule-based defaults.
+
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
 ## Notes
 - This MVP is scoped for one user and stores one OAuth token set.
 - No payment processing.
 - No subscriptions.
-- Form generation is rule-based and local (no LLM key required).
+- Form generation uses Claude when `ANTHROPIC_API_KEY` is set, otherwise falls back to rule-based generation.
 
 ---
 
