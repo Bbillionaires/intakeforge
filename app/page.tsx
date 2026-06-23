@@ -23,6 +23,7 @@ const QUESTION_TYPES: QuestionType[] = ["short_text", "long_text", "multiple_cho
 
 export default function HomePage() {
   const [prompt, setPrompt] = useState("Create a home buyer intake form");
+  const [depth, setDepth] = useState<"brief" | "comprehensive">("brief");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [connected, setConnected] = useState(false);
@@ -68,7 +69,7 @@ export default function HomePage() {
       const created = await api<Draft>("/forms/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, depth }),
       });
       setDraft(created);
       await refreshStatusAndDrafts();
@@ -197,6 +198,24 @@ export default function HomePage() {
             >
               {busy ? "Generating…" : "Generate"}
             </button>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <span className="text-xs text-gray-500 self-center">Form depth:</span>
+            <button
+              onClick={() => setDepth("brief")}
+              className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${depth === "brief" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+            >
+              Brief
+            </button>
+            <button
+              onClick={() => setDepth("comprehensive")}
+              className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${depth === "comprehensive" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+            >
+              Comprehensive
+            </button>
+            <span className="text-xs text-gray-400 self-center">
+              {depth === "comprehensive" ? "Full intake with all required sections" : "Quick form with essential questions only"}
+            </span>
           </div>
         </div>
 

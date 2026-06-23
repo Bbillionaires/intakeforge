@@ -87,7 +87,7 @@ def create_draft(payload: GenerateRequest, session: Session = Depends(get_sessio
     if not payload.prompt.strip():
         raise HTTPException(400, "Prompt cannot be empty")
 
-    schema = generate_form(payload.prompt)
+    schema = generate_form(payload.prompt, payload.depth)
     draft = FormDraft(
         prompt=payload.prompt,
         title=schema.title,

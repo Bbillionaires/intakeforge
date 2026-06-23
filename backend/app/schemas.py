@@ -25,6 +25,7 @@ class FormSchema(BaseModel):
 
 class GenerateRequest(BaseModel):
     prompt: str
+    depth: Literal["brief", "comprehensive"] = "brief"
 
 
 class DraftResponse(BaseModel):

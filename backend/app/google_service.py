@@ -53,7 +53,16 @@ def create_google_form_and_sheet(creds: Credentials, schema: dict):
     requests = []
     index = 0
     for section in schema["sections"]:
-        requests.append({"createItem": {"item": {"title": section["title"], "description": section.get("description", ""), "pageBreakItem": {}}, "location": {"index": index}}})
+        requests.append({
+            "createItem": {
+                "item": {
+                    "title": section["title"],
+                    "description": section.get("description", ""),
+                    "pageBreakItem": {}
+                },
+                "location": {"index": index}
+            }
+        })
         index += 1
         for q in section["questions"]:
             q_description = ""
@@ -62,51 +71,58 @@ def create_google_form_and_sheet(creds: Credentials, schema: dict):
             elif q["type"] == "number":
                 q_description = "Please answer using a numeric value."
 
-            question_item = {
-                "title": q["label"],
-                "description": q_description,
-                "questionItem": {
-                    "question": {
-                        "required": q.get("required", False),
-                        "textQuestion": {}
-                    }
-                }
-            }
             qtype = q["type"]
+            required = q.get("required", False)
+
             if qtype in ("multiple_choice", "checkbox") and q.get("options"):
                 choice_type = "RADIO" if qtype == "multiple_choice" else "CHECKBOX"
-                question_item["questionItem"]["question"] = {
-                    "required": q.get("required", False),
-                    "choiceQuestion": {
-                        "type": choice_type,
-                        "options": [{"value": o} for o in q["options"]],
+                question_item = {
+                    "title": q["label"],
+                    "description": q_description,
+                    "questionItem": {
+                        "question": {
+                            "required": required,
+                            "choiceQuestion": {
+                                "type": choice_type,
+                                "options": [{"value": o} for o in q["options"]],
+                            },
+                        }
                     },
                 }
+            elif qtype == "long_text":
+                question_item = {
+                    "title": q["label"],
+                    "description": q_description,
+                    "questionItem": {
+                        "question": {
+                            "required": required,
+                            "textQuestion": {"paragraph": True},
+                        }
+                    },
+                }
+            else:
+                question_item = {
+                    "title": q["label"],
+                    "description": q_description,
+                    "questionItem": {
+                        "question": {
+                            "required": required,
+                            "textQuestion": {},
+                        }
+                    },
+                }
+
             requests.append({"createItem": {"item": question_item, "location": {"index": index}}})
             index += 1
 
-    forms_service.forms().batchUpdate(formId=form_id, body={"requests": requests}).execute()
+    if requests:
+        forms_service.forms().batchUpdate(formId=form_id, body={"requests": requests}).execute()
 
-    # Link a new Google Sheet to collect responses via the Forms API watch/settings
-    # The correct approach is to set the response destination using the forms batchUpdate
-    forms_service.forms().batchUpdate(
-        formId=form_id,
-        body={
-            "requests": [
-                {
-                    "updateSettings": {
-                        "settings": {
-                            "quizSettings": {"isQuiz": False}
-                        },
-                        "updateMask": "quizSettings.isQuiz",
-                    }
-                }
-            ]
-        },
+    # Create a linked response spreadsheet via Sheets API
+    sheets_service = build("sheets", "v4", credentials=creds)
+    new_sheet = sheets_service.spreadsheets().create(
+        body={"properties": {"title": f"{schema['title']} Responses"}}
     ).execute()
-
-    sheets = build("sheets", "v4", credentials=creds)
-    new_sheet = sheets.spreadsheets().create(body={"properties": {"title": f"{schema['title']} Responses"}}).execute()
     sheet_id = new_sheet["spreadsheetId"]
 
     return {
