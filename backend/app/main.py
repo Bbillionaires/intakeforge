@@ -25,7 +25,7 @@ from .schemas import DraftResponse, ErrorResponse, GenerateRequest, UpdateDraftR
 app = FastAPI(title="IntakeForge API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_base_url],
+    allow_origins=[settings.frontend_base_url, "https://intakeforge-sigma.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
