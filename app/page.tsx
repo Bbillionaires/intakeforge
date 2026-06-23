@@ -18,7 +18,7 @@ type Draft = {
   sheet_link?: string;
 };
 
-const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || "https://intakeforge-backend-kny734yvda-uc.a.run.app";
 const QUESTION_TYPES: QuestionType[] = ["short_text", "long_text", "multiple_choice", "checkbox", "date", "number"];
 
 export default function HomePage() {
