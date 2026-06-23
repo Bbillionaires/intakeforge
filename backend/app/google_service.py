@@ -86,14 +86,28 @@ def create_google_form_and_sheet(creds: Credentials, schema: dict):
             index += 1
 
     forms_service.forms().batchUpdate(formId=form_id, body={"requests": requests}).execute()
+
+    # Link a new Google Sheet to collect responses via the Forms API watch/settings
+    # The correct approach is to set the response destination using the forms batchUpdate
+    forms_service.forms().batchUpdate(
+        formId=form_id,
+        body={
+            "requests": [
+                {
+                    "updateSettings": {
+                        "settings": {
+                            "quizSettings": {"isQuiz": False}
+                        },
+                        "updateMask": "quizSettings.isQuiz",
+                    }
+                }
+            ]
+        },
+    ).execute()
+
     sheets = build("sheets", "v4", credentials=creds)
     new_sheet = sheets.spreadsheets().create(body={"properties": {"title": f"{schema['title']} Responses"}}).execute()
     sheet_id = new_sheet["spreadsheetId"]
-
-    forms_service.forms().setDestination(
-        formId=form_id,
-        body={"destinationType": "SPREADSHEET", "spreadsheetId": sheet_id},
-    ).execute()
 
     return {
         "form_id": form_id,
