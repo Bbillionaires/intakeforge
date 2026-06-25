@@ -20,7 +20,7 @@ from .google_service import (
     save_credentials,
 )
 from .models import FormDraft, OAuthToken
-from .schemas import DraftResponse, ErrorResponse, GenerateRequest, UpdateDraftRequest
+from .schemas import CloneRequest, DraftResponse, ErrorResponse, GenerateRequest, UpdateDraftRequest
 
 app = FastAPI(title="IntakeForge API")
 app.add_middleware(
@@ -44,6 +44,8 @@ def draft_to_response(draft: FormDraft) -> DraftResponse:
         title=draft.title,
         description=draft.description,
         approved=draft.approved,
+        is_template=draft.is_template,
+        template_name=draft.template_name,
         schema=json.loads(draft.schema_json),
         form_edit_link=draft.form_edit_link,
         form_public_link=draft.form_public_link,
@@ -129,11 +131,39 @@ def update_form(form_id: int, payload: UpdateDraftRequest, session: Session = De
     draft.description = payload.description
     draft.schema_json = payload.schema.model_dump_json()
     draft.approved = payload.approved
+    draft.is_template = payload.is_template
+    draft.template_name = payload.template_name
     draft.updated_at = datetime.utcnow()
     session.add(draft)
     session.commit()
     session.refresh(draft)
     return draft_to_response(draft)
+
+
+@app.post("/forms/{form_id}/clone", response_model=DraftResponse, responses={404: {"model": ErrorResponse}})
+def clone_form(form_id: int, payload: CloneRequest, session: Session = Depends(get_session)):
+    original = session.get(FormDraft, form_id)
+    if not original:
+        raise HTTPException(404, "Not found")
+    clone = FormDraft(
+        prompt=original.prompt,
+        title=payload.title,
+        description=original.description,
+        schema_json=original.schema_json,
+        approved=False,
+        is_template=payload.make_template,
+        template_name=payload.template_name if payload.make_template else None,
+    )
+    session.add(clone)
+    session.commit()
+    session.refresh(clone)
+    return draft_to_response(clone)
+
+
+@app.get("/templates", response_model=list[DraftResponse])
+def list_templates(session: Session = Depends(get_session)):
+    templates = session.exec(select(FormDraft).where(FormDraft.is_template == True).order_by(FormDraft.created_at.desc())).all()
+    return [draft_to_response(t) for t in templates]
 
 
 @app.post("/forms/{form_id}/publish", response_model=DraftResponse, responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}})

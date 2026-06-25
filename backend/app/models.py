@@ -16,6 +16,8 @@ class FormDraft(SQLModel, table=True):
     description: str
     schema_json: str
     approved: bool = False
+    is_template: bool = False
+    template_name: Optional[str] = None
     google_form_id: Optional[str] = None
     form_edit_link: Optional[str] = None
     form_public_link: Optional[str] = None

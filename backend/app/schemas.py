@@ -1,5 +1,5 @@
 from typing import List, Literal, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 QuestionType = Literal["short_text", "long_text", "multiple_choice", "checkbox", "date", "number"]
 
@@ -25,7 +25,13 @@ class FormSchema(BaseModel):
 
 class GenerateRequest(BaseModel):
     prompt: str
-    depth: Literal["brief", "comprehensive"] = "brief"
+    depth: int = Field(default=5, ge=1, le=10)
+
+
+class CloneRequest(BaseModel):
+    title: str
+    make_template: bool = False
+    template_name: Optional[str] = None
 
 
 class DraftResponse(BaseModel):
@@ -34,6 +40,8 @@ class DraftResponse(BaseModel):
     title: str
     description: str
     approved: bool
+    is_template: bool = False
+    template_name: Optional[str] = None
     schema: FormSchema
     form_edit_link: Optional[str] = None
     form_public_link: Optional[str] = None
@@ -45,6 +53,8 @@ class UpdateDraftRequest(BaseModel):
     description: str
     schema: FormSchema
     approved: bool = False
+    is_template: bool = False
+    template_name: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):
