@@ -20,7 +20,7 @@ type Draft = {
   sheet_link?: string;
 };
 
-const API = process.env.NEXT_PUBLIC_API_BASE_URL || "https://intakeforge-backend-kny734yvda-uc.a.run.app";
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || "https://intakeforge-backend-527226736949.us-central1.run.app";
 const QUESTION_TYPES: QuestionType[] = ["short_text", "long_text", "multiple_choice", "checkbox", "date", "number"];
 
 const DEPTH_LABELS: Record<number, string> = {
