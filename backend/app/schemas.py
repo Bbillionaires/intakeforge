@@ -57,5 +57,16 @@ class UpdateDraftRequest(BaseModel):
     template_name: Optional[str] = None
 
 
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    name: str
+    picture: str
+    plan: str
+    forms_used_this_month: int
+    free_forms_per_month: int
+    free_max_depth: int
+
+
 class ErrorResponse(BaseModel):
     detail: str

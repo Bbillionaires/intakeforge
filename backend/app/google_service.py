@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+import httpx
 
 from .config import settings
 from .models import OAuthToken
@@ -12,6 +13,9 @@ SCOPES = [
     "https://www.googleapis.com/auth/forms.responses.readonly",
     "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/spreadsheets",
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
 ]
 
 
@@ -32,16 +36,32 @@ def credentials_from_db(token_row: OAuthToken) -> Credentials:
     return Credentials.from_authorized_user_info(data, SCOPES)
 
 
-def save_credentials(session, creds: Credentials) -> None:
+def save_credentials(session, creds: Credentials, user_id: int) -> OAuthToken:
     data = creds.to_json()
-    token = session.get(OAuthToken, 1)
+    from sqlmodel import select
+    token = session.exec(select(OAuthToken).where(OAuthToken.user_id == user_id)).first()
     if token:
         token.token_json = data
         token.updated_at = datetime.utcnow()
     else:
-        token = OAuthToken(id=1, token_json=data)
+        token = OAuthToken(user_id=user_id, token_json=data)
         session.add(token)
     session.commit()
+    return token
+
+
+def get_google_userinfo(access_token: str) -> dict:
+    resp = httpx.get(
+        "https://www.googleapis.com/oauth2/v3/userinfo",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_user_token(session, user_id: int) -> OAuthToken | None:
+    from sqlmodel import select
+    return session.exec(select(OAuthToken).where(OAuthToken.user_id == user_id)).first()
 
 
 def create_google_form_and_sheet(creds: Credentials, schema: dict):
@@ -118,7 +138,6 @@ def create_google_form_and_sheet(creds: Credentials, schema: dict):
     if requests:
         forms_service.forms().batchUpdate(formId=form_id, body={"requests": requests}).execute()
 
-    # Create a linked response spreadsheet via Sheets API
     sheets_service = build("sheets", "v4", credentials=creds)
     new_sheet = sheets_service.spreadsheets().create(
         body={"properties": {"title": f"{schema['title']} Responses"}}

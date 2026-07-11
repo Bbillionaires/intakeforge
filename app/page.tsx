@@ -7,33 +7,21 @@ type Question = { label: string; type: QuestionType; required: boolean; options?
 type Section = { title: string; description: string; questions: Question[] };
 type FormSchema = { title: string; description: string; sections: Section[] };
 type Draft = {
-  id: number;
-  prompt: string;
-  title: string;
-  description: string;
-  approved: boolean;
-  is_template: boolean;
-  template_name?: string;
-  schema: FormSchema;
-  form_edit_link?: string;
-  form_public_link?: string;
-  sheet_link?: string;
+  id: number; prompt: string; title: string; description: string;
+  approved: boolean; is_template: boolean; template_name?: string;
+  schema: FormSchema; form_edit_link?: string; form_public_link?: string; sheet_link?: string;
+};
+type UserInfo = {
+  id: number; email: string; name: string; picture: string; plan: string;
+  forms_used_this_month: number; free_forms_per_month: number; free_max_depth: number;
 };
 
 const API = process.env.NEXT_PUBLIC_API_BASE_URL || "https://intakeforge-backend-527226736949.us-central1.run.app";
 const QUESTION_TYPES: QuestionType[] = ["short_text", "long_text", "multiple_choice", "checkbox", "date", "number"];
-
 const DEPTH_LABELS: Record<number, string> = {
-  1: "1 — Bare minimum",
-  2: "2 — Very simple",
-  3: "3 — Basic",
-  4: "4 — Brief",
-  5: "5 — Standard",
-  6: "6 — Detailed",
-  7: "7 — Professional",
-  8: "8 — Thorough",
-  9: "9 — Comprehensive",
-  10: "10 — Government standard",
+  1: "1 — Bare minimum", 2: "2 — Very simple", 3: "3 — Basic", 4: "4 — Brief",
+  5: "5 — Standard", 6: "6 — Detailed", 7: "7 — Professional",
+  8: "8 — Thorough", 9: "9 — Comprehensive", 10: "10 — Government standard",
 };
 
 export default function HomePage() {
@@ -44,6 +32,7 @@ export default function HomePage() {
   const [templates, setTemplates] = useState<Draft[]>([]);
   const [tab, setTab] = useState<"drafts" | "templates">("drafts");
   const [connected, setConnected] = useState(false);
+  const [user, setUser] = useState<UserInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cloneTitle, setCloneTitle] = useState("");
@@ -51,24 +40,29 @@ export default function HomePage() {
   const [makeTemplate, setMakeTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
 
-  const canPublish = useMemo(() => !!draft && draft.approved && connected && !busy, [draft, connected, busy]);
+  const isPro = user?.plan === "pro";
+  const formsLeft = user ? user.free_forms_per_month - user.forms_used_this_month : 0;
+  const depthLocked = !isPro && depth > (user?.free_max_depth ?? 5);
 
   async function api<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${API}${path}`, init);
+    const res = await fetch(`${API}${path}`, { credentials: "include", ...init });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Request failed");
     return data as T;
   }
 
   async function refresh() {
-    const [status, allDrafts, allTemplates] = await Promise.all([
-      api<{ connected: boolean }>("/auth/google/status"),
-      api<Draft[]>("/forms"),
-      api<Draft[]>("/templates"),
-    ]);
+    const status = await api<{ connected: boolean; user?: UserInfo }>("/auth/google/status");
     setConnected(status.connected);
-    setDrafts(allDrafts);
-    setTemplates(allTemplates);
+    setUser(status.user ?? null);
+    if (status.connected) {
+      const [allDrafts, allTemplates] = await Promise.all([
+        api<Draft[]>("/forms"),
+        api<Draft[]>("/templates"),
+      ]);
+      setDrafts(allDrafts);
+      setTemplates(allTemplates);
+    }
   }
 
   useEffect(() => { refresh().catch((e) => setError(e.message)); }, []);
@@ -81,7 +75,31 @@ export default function HomePage() {
     } catch (e) { setError((e as Error).message); }
   }
 
+  async function logout() {
+    await fetch(`${API}/auth/logout`, { method: "POST", credentials: "include" });
+    setConnected(false); setUser(null); setDrafts([]); setTemplates([]); setDraft(null);
+  }
+
+  async function upgrade() {
+    setBusy(true);
+    try {
+      const data = await api<{ url: string }>("/billing/checkout", { method: "POST" });
+      window.location.href = data.url;
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function manageSubscription() {
+    setBusy(true);
+    try {
+      const data = await api<{ url: string }>("/billing/portal", { method: "POST" });
+      window.location.href = data.url;
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
   async function generate() {
+    if (depthLocked) { setError(`Depth ${depth} requires Pro. Upgrade or reduce depth to ${user?.free_max_depth ?? 5}.`); return; }
     setBusy(true); setError(null);
     try {
       const created = await api<Draft>("/forms/generate", {
@@ -121,270 +139,270 @@ export default function HomePage() {
     finally { setBusy(false); }
   }
 
-  async function clone() {
+  async function cloneForm() {
     if (!draft || !cloneTitle.trim()) return;
     setBusy(true); setError(null);
     try {
       const cloned = await api<Draft>(`/forms/${draft.id}/clone`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: cloneTitle, make_template: makeTemplate, template_name: makeTemplate ? templateName : null }),
+        body: JSON.stringify({ title: cloneTitle, make_template: makeTemplate, template_name: makeTemplate ? templateName : undefined }),
       });
       setDraft(cloned);
-      setShowClone(false);
-      setCloneTitle("");
-      setMakeTemplate(false);
-      setTemplateName("");
+      setShowClone(false); setCloneTitle(""); setMakeTemplate(false); setTemplateName("");
       await refresh();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
 
-  function updateSection(si: number, key: keyof Section, value: string) {
+  function updateQuestion(si: number, qi: number, field: keyof Question, value: unknown) {
     if (!draft) return;
-    const sections = [...draft.schema.sections];
-    (sections[si] as Record<string, unknown>)[key] = value;
+    const sections = draft.schema.sections.map((s, i) =>
+      i !== si ? s : { ...s, questions: s.questions.map((q, j) => j !== qi ? q : { ...q, [field]: value }) }
+    );
     setDraft({ ...draft, schema: { ...draft.schema, sections } });
-  }
-
-  function updateQuestion(si: number, qi: number, patch: Partial<Question>) {
-    if (!draft) return;
-    const sections = [...draft.schema.sections];
-    sections[si].questions[qi] = { ...sections[si].questions[qi], ...patch };
-    setDraft({ ...draft, schema: { ...draft.schema, sections } });
-  }
-
-  function deleteQuestion(si: number, qi: number) {
-    if (!draft) return;
-    const sections = [...draft.schema.sections];
-    sections[si].questions.splice(qi, 1);
-    setDraft({ ...draft, schema: { ...draft.schema, sections } });
-  }
-
-  function deleteSection(si: number) {
-    if (!draft || draft.schema.sections.length <= 1) return;
-    const sections = [...draft.schema.sections];
-    sections.splice(si, 1);
-    setDraft({ ...draft, schema: { ...draft.schema, sections } });
-  }
-
-  function addSection() {
-    if (!draft) return;
-    setDraft({ ...draft, schema: { ...draft.schema, sections: [...draft.schema.sections, { title: "New Section", description: "", questions: [] }] } });
   }
 
   function addQuestion(si: number) {
     if (!draft) return;
-    const sections = [...draft.schema.sections];
-    sections[si].questions.push({ label: "New question", type: "short_text", required: false });
+    const sections = draft.schema.sections.map((s, i) =>
+      i !== si ? s : { ...s, questions: [...s.questions, { label: "New question", type: "short_text" as QuestionType, required: false }] }
+    );
+    setDraft({ ...draft, schema: { ...draft.schema, sections } });
+  }
+
+  function removeQuestion(si: number, qi: number) {
+    if (!draft) return;
+    const sections = draft.schema.sections.map((s, i) =>
+      i !== si ? s : { ...s, questions: s.questions.filter((_, j) => j !== qi) }
+    );
     setDraft({ ...draft, schema: { ...draft.schema, sections } });
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">IntakeForge</h1>
-          <p className="text-sm text-gray-500">Generate, edit, and publish intake forms to Google Forms</p>
-        </div>
-        <button
-          onClick={connectGoogle}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${connected ? "bg-green-100 text-green-800 border border-green-300" : "bg-blue-600 text-white hover:bg-blue-700"}`}
-        >
-          {connected ? "Google Connected" : "Connect Google"}
-        </button>
-      </header>
-
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-6">
-        {error && <div className="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3 text-sm">{error}</div>}
-
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Generate a new form</h2>
-          <div className="flex gap-3">
-            <input
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !busy && generate()}
-              placeholder="Describe the form you need..."
-              className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              onClick={generate}
-              disabled={busy}
-              className="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {busy ? "Generating…" : "Generate"}
-            </button>
+    <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+      {/* Sidebar */}
+      <aside className="w-72 bg-white border-r border-gray-200 flex flex-col">
+        {/* Logo + User */}
+        <div className="p-4 border-b border-gray-100">
+          <div className="flex items-center justify-between mb-3">
+            <h1 className="text-lg font-bold text-gray-900">IntakeForge</h1>
+            {isPro && <span className="bg-blue-600 text-white text-xs px-2 py-0.5 rounded-full font-semibold">PRO</span>}
           </div>
-          <div className="mt-4">
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-medium text-gray-600">Form depth: <span className="text-blue-600">{DEPTH_LABELS[depth]}</span></label>
-            </div>
-            <input
-              type="range"
-              min={1}
-              max={10}
-              value={depth}
-              onChange={(e) => setDepth(Number(e.target.value))}
-              className="w-full accent-blue-600"
-            />
-            <div className="flex justify-between text-xs text-gray-400 mt-1">
-              <span>1 — Simplest</span>
-              <span>5 — Standard</span>
-              <span>10 — Government</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-6">
-          <div className="col-span-1">
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <div className="flex gap-2 mb-3">
-                <button onClick={() => setTab("drafts")} className={`flex-1 text-xs font-medium py-1 rounded ${tab === "drafts" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600"}`}>Drafts</button>
-                <button onClick={() => setTab("templates")} className={`flex-1 text-xs font-medium py-1 rounded ${tab === "templates" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600"}`}>Templates</button>
+          {user ? (
+            <div className="flex items-center gap-2">
+              {user.picture && <img src={user.picture} className="w-8 h-8 rounded-full" alt="" />}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{user.name || user.email}</p>
+                <p className="text-xs text-gray-500 truncate">{user.email}</p>
               </div>
-
-              {tab === "drafts" && (
-                <>
-                  {drafts.length === 0 ? <p className="text-sm text-gray-400">No drafts yet.</p> : (
-                    <ul className="space-y-2">
-                      {drafts.map((d) => (
-                        <li key={d.id}>
-                          <button
-                            onClick={() => setDraft(d)}
-                            className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${draft?.id === d.id ? "bg-blue-50 text-blue-800 border border-blue-200" : "hover:bg-gray-50 text-gray-700"}`}
-                          >
-                            <span className="font-medium truncate block">{d.title}</span>
-                            <span className={`text-xs ${d.approved ? "text-green-600" : "text-gray-400"}`}>
-                              {d.is_template ? "📋 Template" : d.approved ? "Approved" : "Draft"} #{d.id}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
-
-              {tab === "templates" && (
-                <>
-                  {templates.length === 0 ? <p className="text-sm text-gray-400">No templates yet. Save a published form as a template.</p> : (
-                    <ul className="space-y-2">
-                      {templates.map((t) => (
-                        <li key={t.id}>
-                          <button
-                            onClick={() => setDraft(t)}
-                            className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${draft?.id === t.id ? "bg-blue-50 text-blue-800 border border-blue-200" : "hover:bg-gray-50 text-gray-700"}`}
-                          >
-                            <span className="font-medium truncate block">{t.template_name || t.title}</span>
-                            <span className="text-xs text-purple-600">📋 Template #{t.id}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
+              <button onClick={logout} className="text-xs text-gray-400 hover:text-gray-600">Out</button>
             </div>
-          </div>
+          ) : (
+            <button onClick={connectGoogle} className="w-full bg-blue-600 text-white text-sm py-2 rounded-lg hover:bg-blue-700">
+              Connect Google
+            </button>
+          )}
+        </div>
 
-          <div className="col-span-2">
-            {draft ? (
-              <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Title</label>
-                    <input className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Description</label>
-                    <textarea rows={2} className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  {draft.schema.sections.map((section, si) => (
-                    <div key={si} className="border border-gray-200 rounded-md p-4 bg-gray-50">
-                      <div className="flex items-start gap-2 mb-3">
-                        <input className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" value={section.title} onChange={(e) => updateSection(si, "title", e.target.value)} />
-                        <button type="button" onClick={() => deleteSection(si)} disabled={draft.schema.sections.length <= 1} className="text-xs text-red-500 hover:text-red-700 disabled:opacity-30 px-2 py-1">Remove</button>
-                      </div>
-                      <input className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-600 bg-white mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500" value={section.description} placeholder="Section description" onChange={(e) => updateSection(si, "description", e.target.value)} />
-                      <div className="space-y-2">
-                        {section.questions.map((q, qi) => (
-                          <div key={qi} className="bg-white border border-gray-200 rounded p-3">
-                            <div className="flex gap-2 items-center">
-                              <input className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={q.label} onChange={(e) => updateQuestion(si, qi, { label: e.target.value })} />
-                              <select className="border border-gray-300 rounded px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" value={q.type} onChange={(e) => {
-                                const nextType = e.target.value as QuestionType;
-                                const patch: Partial<Question> = { type: nextType };
-                                if (nextType !== "multiple_choice" && nextType !== "checkbox") patch.options = undefined;
-                                if ((nextType === "multiple_choice" || nextType === "checkbox") && !q.options) patch.options = ["Option 1", "Option 2"];
-                                updateQuestion(si, qi, patch);
-                              }}>
-                                {QUESTION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                              </select>
-                              <label className="flex items-center gap-1 text-xs text-gray-600 whitespace-nowrap">
-                                <input type="checkbox" checked={q.required} onChange={(e) => updateQuestion(si, qi, { required: e.target.checked })} />
-                                Req
-                              </label>
-                              <button type="button" onClick={() => deleteQuestion(si, qi)} className="text-red-400 hover:text-red-600 text-xs px-1">✕</button>
-                            </div>
-                            {(q.type === "multiple_choice" || q.type === "checkbox") && (
-                              <input className="mt-2 w-full border border-gray-200 rounded px-2 py-1 text-xs text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" value={(q.options || []).join(", ")} onChange={(e) => updateQuestion(si, qi, { options: e.target.value.split(",").map((v) => v.trim()).filter(Boolean) })} placeholder="Comma-separated options" />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      <button type="button" onClick={() => addQuestion(si)} className="mt-2 text-xs text-blue-600 hover:text-blue-800 font-medium">+ Add Question</button>
-                    </div>
-                  ))}
-                </div>
-
-                <button type="button" onClick={addSection} className="w-full border-2 border-dashed border-gray-300 rounded-md py-2 text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors">+ Add Section</button>
-
-                <div className="flex flex-wrap gap-3 pt-2">
-                  <button onClick={() => save(false)} disabled={busy} className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md hover:bg-gray-50 disabled:opacity-50">Save Draft</button>
-                  <button onClick={() => save(true)} disabled={busy} className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 disabled:opacity-50">Approve</button>
-                  <button onClick={publish} disabled={!canPublish} title={!draft.approved ? "Approve first" : !connected ? "Connect Google first" : ""} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Publish to Google</button>
-                  <button onClick={() => setShowClone(!showClone)} className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-md hover:bg-purple-700">Use as Template</button>
-                </div>
-
-                {showClone && (
-                  <div className="border border-purple-200 bg-purple-50 rounded-md p-4 space-y-3">
-                    <p className="text-sm font-medium text-purple-800">Clone this form</p>
-                    <input className="w-full border border-gray-300 rounded px-3 py-2 text-sm" placeholder="New form title" value={cloneTitle} onChange={(e) => setCloneTitle(e.target.value)} />
-                    <label className="flex items-center gap-2 text-sm text-gray-700">
-                      <input type="checkbox" checked={makeTemplate} onChange={(e) => setMakeTemplate(e.target.checked)} />
-                      Save as reusable template
-                    </label>
-                    {makeTemplate && (
-                      <input className="w-full border border-gray-300 rounded px-3 py-2 text-sm" placeholder="Template name (e.g. Loan Application)" value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
-                    )}
-                    <div className="flex gap-2">
-                      <button onClick={clone} disabled={busy || !cloneTitle.trim()} className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-md hover:bg-purple-700 disabled:opacity-50">Clone</button>
-                      <button onClick={() => setShowClone(false)} className="px-4 py-2 border border-gray-300 text-sm rounded-md hover:bg-gray-50">Cancel</button>
-                    </div>
-                  </div>
-                )}
-
-                {draft.form_edit_link && (
-                  <div className="border-t border-gray-200 pt-4 space-y-1">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Published Links</p>
-                    <a href={draft.form_edit_link} target="_blank" rel="noreferrer" className="block text-sm text-blue-600 hover:underline">Edit form in Google Forms</a>
-                    <a href={draft.form_public_link} target="_blank" rel="noreferrer" className="block text-sm text-blue-600 hover:underline">View public form</a>
-                    <a href={draft.sheet_link} target="_blank" rel="noreferrer" className="block text-sm text-blue-600 hover:underline">View response spreadsheet</a>
-                  </div>
-                )}
+        {/* Usage / Upgrade */}
+        {connected && user && (
+          <div className="px-4 py-3 border-b border-gray-100">
+            {isPro ? (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Pro plan — unlimited forms</span>
+                <button onClick={manageSubscription} className="text-xs text-blue-600 hover:underline">Manage</button>
               </div>
             ) : (
-              <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-gray-400">
-                <p className="text-lg font-medium">No form selected</p>
-                <p className="text-sm mt-1">Generate a new form or open a draft from the list.</p>
+              <div>
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>Forms this month</span>
+                  <span>{user.forms_used_this_month} / {user.free_forms_per_month}</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-1.5 mb-2">
+                  <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (user.forms_used_this_month / user.free_forms_per_month) * 100)}%` }} />
+                </div>
+                <button onClick={upgrade} disabled={busy} className="w-full bg-blue-600 text-white text-xs py-1.5 rounded-lg hover:bg-blue-700 font-semibold">
+                  Upgrade to Pro — $19/mo
+                </button>
+                <p className="text-xs text-gray-400 mt-1">Unlimited forms · Depth 1–10 · Templates</p>
               </div>
             )}
           </div>
+        )}
+
+        {/* Generate */}
+        <div className="p-4 border-b border-gray-100">
+          <textarea
+            className="w-full border border-gray-200 rounded-lg p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+            rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Describe your intake form..."
+          />
+          <div className="mt-2">
+            <div className="flex justify-between text-xs text-gray-500 mb-1">
+              <span>Depth</span>
+              <span className={depthLocked ? "text-orange-500 font-semibold" : ""}>{DEPTH_LABELS[depth]}{depthLocked ? " 🔒" : ""}</span>
+            </div>
+            <input type="range" min={1} max={10} value={depth}
+              onChange={(e) => setDepth(Number(e.target.value))}
+              className="w-full accent-blue-600"
+            />
+            {depthLocked && <p className="text-xs text-orange-500 mt-1">Depth {depth} requires Pro plan.</p>}
+          </div>
+          <button onClick={generate} disabled={busy || !connected}
+            className="mt-3 w-full bg-blue-600 text-white text-sm py-2 rounded-lg hover:bg-blue-700 disabled:opacity-40 font-semibold">
+            {busy ? "Generating…" : "Generate Form"}
+          </button>
         </div>
+
+        {/* Tabs */}
+        {connected && (
+          <>
+            <div className="flex border-b border-gray-100">
+              {(["drafts", "templates"] as const).map((t) => (
+                <button key={t} onClick={() => setTab(t)}
+                  className={`flex-1 text-xs py-2 font-medium capitalize ${tab === t ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-500"}`}>
+                  {t}
+                </button>
+              ))}
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {(tab === "drafts" ? drafts : templates).map((d) => (
+                <button key={d.id} onClick={() => setDraft(d)}
+                  className={`w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-gray-50 ${draft?.id === d.id ? "bg-blue-50" : ""}`}>
+                  <p className="text-sm font-medium truncate">{d.title}</p>
+                  <p className="text-xs text-gray-400 truncate">{d.prompt}</p>
+                  {d.approved && <span className="text-xs text-green-600 font-medium">Published</span>}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </aside>
+
+      {/* Main */}
+      <main className="flex-1 overflow-y-auto p-6">
+        {error && (
+          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm flex justify-between">
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="ml-4 font-bold">×</button>
+          </div>
+        )}
+
+        {!connected && (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <div className="text-5xl mb-4">📋</div>
+            <h2 className="text-2xl font-bold mb-2">Welcome to IntakeForge</h2>
+            <p className="text-gray-500 mb-6 max-w-md">Connect your Google account to generate, edit, and publish professional intake forms in seconds.</p>
+            <button onClick={connectGoogle} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-blue-700">
+              Connect Google to Get Started
+            </button>
+          </div>
+        )}
+
+        {connected && !draft && (
+          <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
+            <div className="text-4xl mb-3">✨</div>
+            <p className="text-lg font-medium">Enter a prompt and click Generate</p>
+            <p className="text-sm mt-1">or select a draft from the sidebar</p>
+          </div>
+        )}
+
+        {draft && (
+          <div className="max-w-3xl mx-auto">
+            {/* Header */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+              <input className="text-xl font-bold w-full border-none outline-none mb-1"
+                value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+              <textarea className="text-sm text-gray-500 w-full border-none outline-none resize-none"
+                rows={2} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+              <div className="flex gap-2 mt-3 flex-wrap">
+                <button onClick={() => save(false)} disabled={busy} className="text-sm px-4 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40">Save Draft</button>
+                <button onClick={() => save(true)} disabled={busy} className="text-sm px-4 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40">Approve</button>
+                <button onClick={publish} disabled={!draft.approved || busy}
+                  className="text-sm px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40">
+                  {draft.form_public_link ? "Re-publish" : "Publish to Google"}
+                </button>
+                <button onClick={() => setShowClone(!showClone)}
+                  className="text-sm px-4 py-1.5 border border-blue-300 text-blue-600 rounded-lg hover:bg-blue-50">
+                  Use as Template
+                </button>
+              </div>
+
+              {/* Clone panel */}
+              {showClone && (
+                <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <input className="w-full border border-gray-200 rounded p-2 text-sm mb-2"
+                    placeholder="New form title" value={cloneTitle} onChange={(e) => setCloneTitle(e.target.value)} />
+                  <label className="flex items-center gap-2 text-sm mb-2">
+                    <input type="checkbox" checked={makeTemplate} onChange={(e) => setMakeTemplate(e.target.checked)} />
+                    Save as reusable template {!isPro && <span className="text-orange-500 text-xs">(Pro only)</span>}
+                  </label>
+                  {makeTemplate && (
+                    <input className="w-full border border-gray-200 rounded p-2 text-sm mb-2"
+                      placeholder="Template name" value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
+                  )}
+                  <div className="flex gap-2">
+                    <button onClick={cloneForm} disabled={busy || !cloneTitle.trim()} className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40">Clone</button>
+                    <button onClick={() => setShowClone(false)} className="text-sm px-3 py-1.5 border border-gray-300 rounded-lg">Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Links */}
+              {draft.form_public_link && (
+                <div className="mt-3 flex gap-3 text-xs flex-wrap">
+                  <a href={draft.form_public_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Public form ↗</a>
+                  {draft.form_edit_link && <a href={draft.form_edit_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Edit in Google ↗</a>}
+                  {draft.sheet_link && <a href={draft.sheet_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Response sheet ↗</a>}
+                </div>
+              )}
+            </div>
+
+            {/* Sections */}
+            {draft.schema.sections.map((section, si) => (
+              <div key={si} className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+                <input className="font-semibold text-base w-full border-none outline-none mb-1"
+                  value={section.title}
+                  onChange={(e) => {
+                    const sections = draft.schema.sections.map((s, i) => i !== si ? s : { ...s, title: e.target.value });
+                    setDraft({ ...draft, schema: { ...draft.schema, sections } });
+                  }} />
+                <input className="text-xs text-gray-400 w-full border-none outline-none mb-3"
+                  value={section.description}
+                  onChange={(e) => {
+                    const sections = draft.schema.sections.map((s, i) => i !== si ? s : { ...s, description: e.target.value });
+                    setDraft({ ...draft, schema: { ...draft.schema, sections } });
+                  }} />
+
+                {section.questions.map((q, qi) => (
+                  <div key={qi} className="flex gap-2 items-start mb-2 p-2 bg-gray-50 rounded-lg">
+                    <div className="flex-1">
+                      <input className="w-full text-sm font-medium border-none bg-transparent outline-none"
+                        value={q.label} onChange={(e) => updateQuestion(si, qi, "label", e.target.value)} />
+                      {(q.type === "multiple_choice" || q.type === "checkbox") && (
+                        <textarea className="w-full text-xs text-gray-500 border-none bg-transparent outline-none resize-none mt-1"
+                          rows={2} placeholder="Options (one per line)"
+                          value={(q.options || []).join("\n")}
+                          onChange={(e) => updateQuestion(si, qi, "options", e.target.value.split("\n").filter(Boolean))} />
+                      )}
+                    </div>
+                    <select className="text-xs border border-gray-200 rounded p-1 bg-white"
+                      value={q.type} onChange={(e) => updateQuestion(si, qi, "type", e.target.value as QuestionType)}>
+                      {QUESTION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <label className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap">
+                      <input type="checkbox" checked={q.required} onChange={(e) => updateQuestion(si, qi, "required", e.target.checked)} />
+                      Req
+                    </label>
+                    <button onClick={() => removeQuestion(si, qi)} className="text-red-400 hover:text-red-600 text-sm">×</button>
+                  </div>
+                ))}
+                <button onClick={() => addQuestion(si)} className="text-xs text-blue-600 hover:underline mt-1">+ Add question</button>
+              </div>
+            ))}
+          </div>
+        )}
       </main>
     </div>
   );
