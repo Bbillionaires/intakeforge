@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 type QuestionType = "short_text" | "long_text" | "multiple_choice" | "checkbox" | "date" | "number";
 type Question = { label: string; type: QuestionType; required: boolean; options?: string[] };
@@ -24,6 +24,14 @@ const DEPTH_LABELS: Record<number, string> = {
   8: "8 — Thorough", 9: "9 — Comprehensive", 10: "10 — Government standard",
 };
 
+function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("intakeforge_token");
+}
+
+function setToken(t: string) { localStorage.setItem("intakeforge_token", t); }
+function clearToken() { localStorage.removeItem("intakeforge_token"); }
+
 export default function HomePage() {
   const [prompt, setPrompt] = useState("Create a home buyer intake form");
   const [depth, setDepth] = useState(5);
@@ -41,11 +49,13 @@ export default function HomePage() {
   const [templateName, setTemplateName] = useState("");
 
   const isPro = user?.plan === "pro";
-  const formsLeft = user ? user.free_forms_per_month - user.forms_used_this_month : 0;
   const depthLocked = !isPro && depth > (user?.free_max_depth ?? 5);
 
   async function api<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${API}${path}`, { credentials: "include", ...init });
+    const token = getToken();
+    const headers: Record<string, string> = { "Content-Type": "application/json", ...(init?.headers as Record<string, string> || {}) };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API}${path}`, { ...init, headers });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Request failed");
     return data as T;
@@ -65,7 +75,16 @@ export default function HomePage() {
     }
   }
 
-  useEffect(() => { refresh().catch((e) => setError(e.message)); }, []);
+  useEffect(() => {
+    // Pick up token from URL after OAuth redirect
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get("token");
+    if (urlToken) {
+      setToken(urlToken);
+      window.history.replaceState({}, "", "/");
+    }
+    refresh().catch((e) => setError(e.message));
+  }, []);
 
   async function connectGoogle() {
     setError(null);
@@ -75,8 +94,8 @@ export default function HomePage() {
     } catch (e) { setError((e as Error).message); }
   }
 
-  async function logout() {
-    await fetch(`${API}/auth/logout`, { method: "POST", credentials: "include" });
+  function logout() {
+    clearToken();
     setConnected(false); setUser(null); setDrafts([]); setTemplates([]); setDraft(null);
   }
 
@@ -104,7 +123,6 @@ export default function HomePage() {
     try {
       const created = await api<Draft>("/forms/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, depth }),
       });
       setDraft(created);
@@ -119,7 +137,6 @@ export default function HomePage() {
     try {
       const updated = await api<Draft>(`/forms/${draft.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: draft.title, description: draft.description, schema: draft.schema, approved, is_template: draft.is_template, template_name: draft.template_name }),
       });
       setDraft(updated);
@@ -145,7 +162,6 @@ export default function HomePage() {
     try {
       const cloned = await api<Draft>(`/forms/${draft.id}/clone`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: cloneTitle, make_template: makeTemplate, template_name: makeTemplate ? templateName : undefined }),
       });
       setDraft(cloned);
@@ -183,7 +199,6 @@ export default function HomePage() {
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
       {/* Sidebar */}
       <aside className="w-72 bg-white border-r border-gray-200 flex flex-col">
-        {/* Logo + User */}
         <div className="p-4 border-b border-gray-100">
           <div className="flex items-center justify-between mb-3">
             <h1 className="text-lg font-bold text-gray-900">IntakeForge</h1>
@@ -205,12 +220,11 @@ export default function HomePage() {
           )}
         </div>
 
-        {/* Usage / Upgrade */}
         {connected && user && (
           <div className="px-4 py-3 border-b border-gray-100">
             {isPro ? (
               <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Pro plan — unlimited forms</span>
+                <span className="text-xs text-gray-500">Pro — unlimited forms</span>
                 <button onClick={manageSubscription} className="text-xs text-blue-600 hover:underline">Manage</button>
               </div>
             ) : (
@@ -231,7 +245,6 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Generate */}
         <div className="p-4 border-b border-gray-100">
           <textarea
             className="w-full border border-gray-200 rounded-lg p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -243,10 +256,7 @@ export default function HomePage() {
               <span>Depth</span>
               <span className={depthLocked ? "text-orange-500 font-semibold" : ""}>{DEPTH_LABELS[depth]}{depthLocked ? " 🔒" : ""}</span>
             </div>
-            <input type="range" min={1} max={10} value={depth}
-              onChange={(e) => setDepth(Number(e.target.value))}
-              className="w-full accent-blue-600"
-            />
+            <input type="range" min={1} max={10} value={depth} onChange={(e) => setDepth(Number(e.target.value))} className="w-full accent-blue-600" />
             {depthLocked && <p className="text-xs text-orange-500 mt-1">Depth {depth} requires Pro plan.</p>}
           </div>
           <button onClick={generate} disabled={busy || !connected}
@@ -255,7 +265,6 @@ export default function HomePage() {
           </button>
         </div>
 
-        {/* Tabs */}
         {connected && (
           <>
             <div className="flex border-b border-gray-100">
@@ -310,7 +319,6 @@ export default function HomePage() {
 
         {draft && (
           <div className="max-w-3xl mx-auto">
-            {/* Header */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
               <input className="text-xl font-bold w-full border-none outline-none mb-1"
                 value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
@@ -329,7 +337,6 @@ export default function HomePage() {
                 </button>
               </div>
 
-              {/* Clone panel */}
               {showClone && (
                 <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
                   <input className="w-full border border-gray-200 rounded p-2 text-sm mb-2"
@@ -349,7 +356,6 @@ export default function HomePage() {
                 </div>
               )}
 
-              {/* Links */}
               {draft.form_public_link && (
                 <div className="mt-3 flex gap-3 text-xs flex-wrap">
                   <a href={draft.form_public_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Public form ↗</a>
@@ -359,7 +365,6 @@ export default function HomePage() {
               )}
             </div>
 
-            {/* Sections */}
             {draft.schema.sections.map((section, si) => (
               <div key={si} className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
                 <input className="font-semibold text-base w-full border-none outline-none mb-1"
@@ -374,7 +379,6 @@ export default function HomePage() {
                     const sections = draft.schema.sections.map((s, i) => i !== si ? s : { ...s, description: e.target.value });
                     setDraft({ ...draft, schema: { ...draft.schema, sections } });
                   }} />
-
                 {section.questions.map((q, qi) => (
                   <div key={qi} className="flex gap-2 items-start mb-2 p-2 bg-gray-50 rounded-lg">
                     <div className="flex-1">

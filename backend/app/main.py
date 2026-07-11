@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import stripe
-from fastapi import Depends, FastAPI, HTTPException, Request, Cookie
+from fastapi import Depends, FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from google.auth.transport.requests import Request as GoogleRequest
@@ -53,7 +53,7 @@ def startup() -> None:
     init_db()
 
 
-# ── JWT helpers ──────────────────────────────────────────────────────────────
+# ── JWT helpers ───────────────────────────────────────────────────────────────
 
 def create_token(user_id: int) -> str:
     expire = datetime.utcnow() + timedelta(days=JWT_EXPIRE_DAYS)
@@ -61,11 +61,12 @@ def create_token(user_id: int) -> str:
 
 
 def get_current_user(
+    authorization: Optional[str] = Header(default=None),
     session: Session = Depends(get_session),
-    token: Optional[str] = Cookie(default=None, alias="intakeforge_token"),
 ) -> User:
-    if not token:
+    if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Not authenticated")
+    token = authorization.removeprefix("Bearer ")
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[JWT_ALGORITHM])
         user_id = int(payload["sub"])
@@ -78,11 +79,12 @@ def get_current_user(
 
 
 def get_current_user_optional(
+    authorization: Optional[str] = Header(default=None),
     session: Session = Depends(get_session),
-    token: Optional[str] = Cookie(default=None, alias="intakeforge_token"),
 ) -> Optional[User]:
-    if not token:
+    if not authorization or not authorization.startswith("Bearer "):
         return None
+    token = authorization.removeprefix("Bearer ")
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[JWT_ALGORITHM])
         return session.get(User, int(payload["sub"]))
@@ -174,14 +176,8 @@ def google_callback(code: str, session: Session = Depends(get_session)):
         session.refresh(user)
 
     save_credentials(session, creds, user.id)
-
     token = create_token(user.id)
-    response = RedirectResponse(f"{settings.frontend_base_url}/?connected=1")
-    response.set_cookie(
-        "intakeforge_token", token,
-        httponly=True, samesite="lax", secure=True, max_age=60 * 60 * 24 * 30
-    )
-    return response
+    return RedirectResponse(f"{settings.frontend_base_url}/?token={token}")
 
 
 @app.get("/auth/google/status")
@@ -201,13 +197,6 @@ def google_status(user: Optional[User] = Depends(get_current_user_optional)) -> 
             "free_max_depth": settings.free_max_depth,
         }
     }
-
-
-@app.post("/auth/logout")
-def logout():
-    response = JSONResponse({"ok": True})
-    response.delete_cookie("intakeforge_token")
-    return response
 
 
 # ── Forms ─────────────────────────────────────────────────────────────────────
@@ -257,7 +246,7 @@ def get_form(form_id: int, session: Session = Depends(get_session), user: User =
     return draft_to_response(draft)
 
 
-@app.put("/forms/{form_id}", response_model=DraftResponse, responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}})
+@app.put("/forms/{form_id}", response_model=DraftResponse)
 def update_form(
     form_id: int,
     payload: UpdateDraftRequest,
@@ -271,7 +260,6 @@ def update_form(
         raise HTTPException(400, "Title cannot be empty")
     if not payload.schema.sections:
         raise HTTPException(400, "At least one section is required")
-
     if payload.is_template and user.plan != "pro":
         raise HTTPException(402, "Templates require Pro plan.")
 
@@ -288,7 +276,7 @@ def update_form(
     return draft_to_response(draft)
 
 
-@app.post("/forms/{form_id}/clone", response_model=DraftResponse, responses={404: {"model": ErrorResponse}})
+@app.post("/forms/{form_id}/clone", response_model=DraftResponse)
 def clone_form(
     form_id: int,
     payload: CloneRequest,
@@ -333,7 +321,7 @@ def list_templates(session: Session = Depends(get_session), user: User = Depends
     return [draft_to_response(t) for t in templates]
 
 
-@app.post("/forms/{form_id}/publish", response_model=DraftResponse, responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}})
+@app.post("/forms/{form_id}/publish", response_model=DraftResponse)
 def publish(form_id: int, session: Session = Depends(get_session), user: User = Depends(get_current_user)):
     draft = session.get(FormDraft, form_id)
     if not draft or draft.user_id != user.id:
@@ -408,7 +396,7 @@ async def stripe_webhook(request: Request, session: Session = Depends(get_sessio
     except Exception:
         raise HTTPException(400, "Invalid webhook")
 
-    if event["type"] == "customer.subscription.created" or event["type"] == "customer.subscription.updated":
+    if event["type"] in ("customer.subscription.created", "customer.subscription.updated"):
         sub = event["data"]["object"]
         customer_id = sub["customer"]
         status = sub["status"]
