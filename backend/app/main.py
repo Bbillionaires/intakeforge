@@ -38,7 +38,7 @@ stripe.api_key = settings.stripe_secret_key
 app = FastAPI(title="IntakeForge API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_base_url, "https://intakeforge-sigma.vercel.app"],
+    allow_origins=["https://intakeforge-sigma.vercel.app", "http://localhost:3000", settings.frontend_base_url],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
