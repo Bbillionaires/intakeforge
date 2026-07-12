@@ -136,6 +136,11 @@ def draft_to_response(draft: FormDraft) -> DraftResponse:
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
+@app.options("/{rest:path}")
+def preflight(rest: str):
+    return {}
+
+
 @app.get("/health")
 def health() -> dict[str, bool]:
     return {"ok": True}

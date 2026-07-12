@@ -53,9 +53,12 @@ export default function HomePage() {
 
   async function api<T>(path: string, init?: RequestInit): Promise<T> {
     const token = getToken();
-    const headers: Record<string, string> = { "Content-Type": "application/json", ...(init?.headers as Record<string, string> || {}) };
+    const method = init?.method || "GET";
+    const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API}${path}`, { ...init, headers });
+    // Only set Content-Type on requests with a body to avoid triggering preflight on GETs
+    if (init?.body) headers["Content-Type"] = "application/json";
+    const res = await fetch(`${API}${path}`, { ...init, method, headers });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Request failed");
     return data as T;
