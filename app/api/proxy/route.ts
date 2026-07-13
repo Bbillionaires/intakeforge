@@ -22,11 +22,18 @@ async function proxy(req: NextRequest) {
   const headers: Record<string, string> = {};
   const auth = req.headers.get("authorization");
   if (auth) headers["authorization"] = auth;
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    headers["content-type"] = req.headers.get("content-type") || "application/json";
+  const contentType = req.headers.get("content-type") || "";
+  // For multipart/form-data let the browser boundary pass through; for others set JSON
+  if (req.method !== "GET" && req.method !== "HEAD" && !contentType.includes("multipart/form-data")) {
+    headers["content-type"] = contentType || "application/json";
   }
 
-  const body = req.method !== "GET" && req.method !== "HEAD" ? await req.text() : undefined;
+  let body: BodyInit | undefined;
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    body = contentType.includes("multipart/form-data")
+      ? await req.blob()   // pass raw multipart bytes unchanged
+      : await req.text();
+  }
 
   const res = await fetch(url, {
     method: req.method,

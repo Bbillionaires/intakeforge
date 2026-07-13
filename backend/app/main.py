@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import stripe
-from fastapi import Depends, FastAPI, HTTPException, Request, Header
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Header, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from google.auth.transport.requests import Request as GoogleRequest
@@ -223,6 +223,74 @@ def create_draft(
     draft = FormDraft(
         user_id=user.id,
         prompt=payload.prompt,
+        title=schema.title,
+        description=schema.description,
+        schema_json=schema.model_dump_json(),
+    )
+    session.add(draft)
+    user.forms_used_this_month += 1
+    session.add(user)
+    session.commit()
+    session.refresh(draft)
+    return draft_to_response(draft)
+
+
+@app.post("/forms/upload", response_model=DraftResponse)
+async def upload_document(
+    file: UploadFile = File(...),
+    depth: int = 5,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    reset_monthly_usage_if_needed(user, session)
+    check_form_limit(user)
+    check_depth_limit(user, depth)
+
+    content = await file.read()
+    filename = file.filename or "document"
+    ext = filename.rsplit(".", 1)[-1].lower()
+
+    extracted = ""
+    if ext == "pdf":
+        try:
+            import io
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(content))
+            extracted = "\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception as e:
+            raise HTTPException(400, f"Could not read PDF: {e}")
+    elif ext in ("txt", "md", "csv"):
+        extracted = content.decode("utf-8", errors="replace")
+    elif ext in ("docx",):
+        try:
+            import io, zipfile, re
+            with zipfile.ZipFile(io.BytesIO(content)) as z:
+                xml = z.read("word/document.xml").decode("utf-8")
+            extracted = re.sub(r"<[^>]+>", " ", xml)
+            extracted = re.sub(r"\s+", " ", extracted).strip()
+        except Exception as e:
+            raise HTTPException(400, f"Could not read DOCX: {e}")
+    else:
+        try:
+            extracted = content.decode("utf-8", errors="replace")
+        except Exception:
+            raise HTTPException(400, "Unsupported file type. Please upload PDF, DOCX, or TXT.")
+
+    extracted = extracted[:12000]  # cap tokens sent to AI
+    if not extracted.strip():
+        raise HTTPException(400, "Could not extract any text from the uploaded file.")
+
+    prompt = f"Based on the following document, create a professional intake form that captures all relevant information a respondent would need to provide.\n\nDocument:\n{extracted}"
+
+    schema = generate_form(prompt, depth)
+    # Use filename as title hint
+    base_name = filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").title()
+    if base_name and schema.title == schema.title:
+        schema.title = f"{base_name} — Intake Form"
+
+    draft = FormDraft(
+        user_id=user.id,
+        prompt=f"Uploaded: {filename}",
         title=schema.title,
         description=schema.description,
         schema_json=schema.model_dump_json(),

@@ -48,6 +48,8 @@ export default function HomePage() {
   const [templateName, setTemplateName] = useState("");
   // Mobile nav: "generate" | "forms" | "account"
   const [mobileTab, setMobileTab] = useState<"generate" | "forms" | "account">("generate");
+  const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const isPro = user?.plan === "pro";
   const depthLocked = !isPro && depth > (user?.free_max_depth ?? 5);
@@ -198,6 +200,34 @@ export default function HomePage() {
     setDraft({ ...draft, schema: { ...draft.schema, sections } });
   }
 
+  async function uploadFile(file: File) {
+    if (!connected) { setError("Connect your Google account first."); return; }
+    setUploading(true); setError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("depth", String(depth));
+      const token = getToken();
+      const res = await fetch(`${API}?path=${encodeURIComponent("/forms/upload")}`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Upload failed");
+      setDraft(data);
+      setMobileTab("generate");
+      await refresh();
+    } catch (e) { setError((e as Error).message); }
+    finally { setUploading(false); }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault(); setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) uploadFile(file);
+  }
+
   // ── Generate panel (used in sidebar on desktop, main view on mobile) ──
   const GeneratePanel = () => (
     <div className="p-4">
@@ -219,10 +249,18 @@ export default function HomePage() {
           Connect Google to Generate
         </button>
       ) : (
-        <button onClick={generate} disabled={busy}
-          className="mt-3 w-full bg-blue-600 text-white text-sm py-3 rounded-xl hover:bg-blue-700 disabled:opacity-40 font-semibold">
-          {busy ? "Generating…" : "Generate Form"}
-        </button>
+        <>
+          <button onClick={generate} disabled={busy || uploading}
+            className="mt-3 w-full bg-blue-600 text-white text-sm py-3 rounded-xl hover:bg-blue-700 disabled:opacity-40 font-semibold">
+            {busy ? "Generating…" : "Generate Form"}
+          </button>
+          <label className={`mt-2 w-full flex items-center justify-center gap-2 border border-blue-300 text-blue-600 text-sm py-3 rounded-xl hover:bg-blue-50 cursor-pointer font-medium ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
+            <span>📄</span> {uploading ? "Converting…" : "Upload a document instead"}
+            <input type="file" className="hidden" accept=".pdf,.docx,.txt,.md,.csv"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
+          </label>
+          <p className="text-xs text-gray-400 mt-1 text-center">PDF · DOCX · TXT — auto-converted to a form</p>
+        </>
       )}
 
       {connected && !isPro && user && (
@@ -601,22 +639,42 @@ export default function HomePage() {
             </div>
           )}
 
-          {!connected && (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <div className="text-5xl mb-4">📋</div>
-              <h2 className="text-2xl font-bold mb-2">Welcome to IntakeForge</h2>
-              <p className="text-gray-500 mb-6 max-w-md">Connect your Google account to generate, edit, and publish professional intake forms in seconds.</p>
-              <button onClick={connectGoogle} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-blue-700">
-                Connect Google to Get Started
-              </button>
-            </div>
-          )}
+          {!draft && (
+            <div className="flex flex-col items-center justify-center h-full">
+              {/* Drop zone */}
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                className={`w-full max-w-xl border-2 border-dashed rounded-2xl p-12 text-center transition-colors ${
+                  dragOver ? "border-blue-500 bg-blue-50" : "border-gray-300 bg-white hover:border-blue-400 hover:bg-gray-50"
+                }`}
+              >
+                <div className="text-5xl mb-4">{uploading ? "⏳" : "📄"}</div>
+                <h2 className="text-xl font-bold mb-2 text-gray-800">
+                  {uploading ? "Converting document…" : "Drop a document to create a form"}
+                </h2>
+                <p className="text-gray-500 text-sm mb-6 max-w-xs mx-auto">
+                  Drop a resume, contract, PDF, Word doc, or any text file. IntakeForge will read it and generate a complete intake form automatically.
+                </p>
+                <p className="text-xs text-gray-400 mb-6">Supports PDF · DOCX · TXT · MD · CSV</p>
 
-          {connected && !draft && (
-            <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
-              <div className="text-4xl mb-3">✨</div>
-              <p className="text-lg font-medium">Enter a prompt and click Generate</p>
-              <p className="text-sm mt-1">or select a draft from the sidebar</p>
+                <label className={`inline-flex items-center gap-2 cursor-pointer bg-blue-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-blue-700 transition text-sm ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
+                  <span>📂</span> Browse files
+                  <input type="file" className="hidden" accept=".pdf,.docx,.txt,.md,.csv"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
+                </label>
+
+                {!connected && (
+                  <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl text-sm text-yellow-800">
+                    <strong>Connect Google first</strong> — click "Connect Google" in the sidebar to get started.
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6 text-center text-gray-400 text-sm">
+                <span>— or type a prompt in the sidebar and click <strong>Generate Form</strong> —</span>
+              </div>
             </div>
           )}
 
