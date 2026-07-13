@@ -82,10 +82,11 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="text-center py-8 text-sm text-gray-400 border-t border-gray-100">
-        <div className="flex justify-center gap-6 mb-2">
+        <div className="flex justify-center gap-6 mb-2 flex-wrap">
           <Link href="/privacy" className="hover:text-gray-600">Privacy Policy</Link>
           <Link href="/terms" className="hover:text-gray-600">Terms of Service</Link>
-          <a href="mailto:henry@greenwood100inc.com" className="hover:text-gray-600">Contact</a>
+          <Link href="/security" className="hover:text-gray-600">Security</Link>
+          <a href="mailto:contact@intakeforge.com" className="hover:text-gray-600">Contact</a>
         </div>
         <p>© 2026 IntakeForge. All rights reserved.</p>
       </footer>
