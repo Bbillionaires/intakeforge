@@ -16,7 +16,7 @@ type UserInfo = {
   forms_used_this_month: number; free_forms_per_month: number; free_max_depth: number;
 };
 
-const API = process.env.NEXT_PUBLIC_API_BASE_URL || "https://intakeforge-backend-527226736949.us-central1.run.app";
+const API = "/api/proxy";
 const QUESTION_TYPES: QuestionType[] = ["short_text", "long_text", "multiple_choice", "checkbox", "date", "number"];
 const DEPTH_LABELS: Record<number, string> = {
   1: "1 — Bare minimum", 2: "2 — Very simple", 3: "3 — Basic", 4: "4 — Brief",
@@ -56,9 +56,8 @@ export default function HomePage() {
     const method = init?.method || "GET";
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    // Only set Content-Type on requests with a body to avoid triggering preflight on GETs
     if (init?.body) headers["Content-Type"] = "application/json";
-    const res = await fetch(`${API}${path}`, { ...init, method, headers });
+    const res = await fetch(`${API}?path=${encodeURIComponent(path)}`, { ...init, method, headers });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Request failed");
     return data as T;
