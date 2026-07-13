@@ -19,16 +19,15 @@ type UserInfo = {
 const API = "/api/proxy";
 const QUESTION_TYPES: QuestionType[] = ["short_text", "long_text", "multiple_choice", "checkbox", "date", "number"];
 const DEPTH_LABELS: Record<number, string> = {
-  1: "1 — Bare minimum", 2: "2 — Very simple", 3: "3 — Basic", 4: "4 — Brief",
-  5: "5 — Standard", 6: "6 — Detailed", 7: "7 — Professional",
-  8: "8 — Thorough", 9: "9 — Comprehensive", 10: "10 — Government standard",
+  1: "Bare minimum", 2: "Very simple", 3: "Basic", 4: "Brief",
+  5: "Standard", 6: "Detailed", 7: "Professional",
+  8: "Thorough", 9: "Comprehensive", 10: "Gov. standard",
 };
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("intakeforge_token");
 }
-
 function setToken(t: string) { localStorage.setItem("intakeforge_token", t); }
 function clearToken() { localStorage.removeItem("intakeforge_token"); }
 
@@ -47,6 +46,8 @@ export default function HomePage() {
   const [showClone, setShowClone] = useState(false);
   const [makeTemplate, setMakeTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
+  // Mobile nav: "generate" | "forms" | "account"
+  const [mobileTab, setMobileTab] = useState<"generate" | "forms" | "account">("generate");
 
   const isPro = user?.plan === "pro";
   const depthLocked = !isPro && depth > (user?.free_max_depth ?? 5);
@@ -78,7 +79,6 @@ export default function HomePage() {
   }
 
   useEffect(() => {
-    // Pick up token from URL after OAuth redirect
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get("token");
     if (urlToken) {
@@ -120,7 +120,7 @@ export default function HomePage() {
   }
 
   async function generate() {
-    if (depthLocked) { setError(`Depth ${depth} requires Pro. Upgrade or reduce depth to ${user?.free_max_depth ?? 5}.`); return; }
+    if (depthLocked) { setError(`Depth ${depth} requires Pro. Upgrade or reduce depth.`); return; }
     setBusy(true); setError(null);
     try {
       const created = await api<Draft>("/forms/generate", {
@@ -128,6 +128,7 @@ export default function HomePage() {
         body: JSON.stringify({ prompt, depth }),
       });
       setDraft(created);
+      setMobileTab("generate");
       await refresh();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
@@ -197,10 +198,150 @@ export default function HomePage() {
     setDraft({ ...draft, schema: { ...draft.schema, sections } });
   }
 
+  // ── Generate panel (used in sidebar on desktop, main view on mobile) ──
+  const GeneratePanel = () => (
+    <div className="p-4">
+      <textarea
+        className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+        rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)}
+        placeholder="Describe your intake form…"
+      />
+      <div className="mt-3">
+        <div className="flex justify-between text-xs text-gray-500 mb-1">
+          <span>Depth</span>
+          <span className={depthLocked ? "text-orange-500 font-semibold" : ""}>{depth} — {DEPTH_LABELS[depth]}{depthLocked ? " 🔒" : ""}</span>
+        </div>
+        <input type="range" min={1} max={10} value={depth} onChange={(e) => setDepth(Number(e.target.value))} className="w-full accent-blue-600" />
+        {depthLocked && <p className="text-xs text-orange-500 mt-1">Depth {depth} requires Pro plan.</p>}
+      </div>
+      {!connected ? (
+        <button onClick={connectGoogle} className="mt-3 w-full bg-blue-600 text-white text-sm py-3 rounded-xl hover:bg-blue-700 font-semibold">
+          Connect Google to Generate
+        </button>
+      ) : (
+        <button onClick={generate} disabled={busy}
+          className="mt-3 w-full bg-blue-600 text-white text-sm py-3 rounded-xl hover:bg-blue-700 disabled:opacity-40 font-semibold">
+          {busy ? "Generating…" : "Generate Form"}
+        </button>
+      )}
+
+      {connected && !isPro && user && (
+        <div className="mt-4 p-3 bg-gray-50 rounded-xl border border-gray-100">
+          <div className="flex justify-between text-xs text-gray-500 mb-1">
+            <span>Forms this month</span>
+            <span>{user.forms_used_this_month} / {user.free_forms_per_month}</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-1.5 mb-3">
+            <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (user.forms_used_this_month / user.free_forms_per_month) * 100)}%` }} />
+          </div>
+          <button onClick={upgrade} disabled={busy} className="w-full bg-blue-600 text-white text-xs py-2 rounded-lg hover:bg-blue-700 font-semibold">
+            Upgrade to Pro — $19/mo
+          </button>
+          <p className="text-xs text-gray-400 mt-1 text-center">Unlimited forms · All depths · Templates</p>
+        </div>
+      )}
+    </div>
+  );
+
+  // ── Forms list panel ──
+  const FormsPanel = () => (
+    <div className="flex flex-col h-full">
+      <div className="flex border-b border-gray-100">
+        {(["drafts", "templates"] as const).map((t) => (
+          <button key={t} onClick={() => setTab(t)}
+            className={`flex-1 text-sm py-3 font-medium capitalize ${tab === t ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-500"}`}>
+            {t}
+          </button>
+        ))}
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {(tab === "drafts" ? drafts : templates).length === 0 ? (
+          <p className="text-sm text-gray-400 text-center mt-12 px-6">
+            {tab === "drafts" ? "No drafts yet. Generate your first form!" : "No templates yet. Clone a draft to create one."}
+          </p>
+        ) : (tab === "drafts" ? drafts : templates).map((d) => (
+          <button key={d.id} onClick={() => { setDraft(d); setMobileTab("generate"); }}
+            className={`w-full text-left px-4 py-4 border-b border-gray-100 hover:bg-gray-50 active:bg-gray-100 ${draft?.id === d.id ? "bg-blue-50 border-l-2 border-l-blue-500" : ""}`}>
+            <p className="text-sm font-semibold truncate">{d.title}</p>
+            <p className="text-xs text-gray-400 truncate mt-0.5">{d.prompt}</p>
+            {d.approved && <span className="text-xs text-green-600 font-medium mt-1 inline-block">✓ Published</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ── Account panel ──
+  const AccountPanel = () => (
+    <div className="p-4 space-y-4">
+      {!connected ? (
+        <div className="text-center pt-8">
+          <div className="text-5xl mb-4">📋</div>
+          <h2 className="text-xl font-bold mb-2">Welcome to IntakeForge</h2>
+          <p className="text-gray-500 mb-6 text-sm">Connect your Google account to get started.</p>
+          <button onClick={connectGoogle} className="w-full bg-blue-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-blue-700">
+            Connect Google
+          </button>
+        </div>
+      ) : user && (
+        <>
+          <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl">
+            {user.picture && <img src={user.picture} className="w-12 h-12 rounded-full" alt="" />}
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold truncate">{user.name || user.email}</p>
+              <p className="text-sm text-gray-500 truncate">{user.email}</p>
+              {isPro && <span className="inline-block bg-blue-600 text-white text-xs px-2 py-0.5 rounded-full font-semibold mt-1">PRO</span>}
+            </div>
+          </div>
+
+          {isPro ? (
+            <div className="p-4 bg-blue-50 rounded-xl">
+              <p className="text-sm font-semibold text-blue-800 mb-1">Pro Plan Active</p>
+              <p className="text-xs text-blue-600 mb-3">Unlimited forms · All depths · Templates</p>
+              <button onClick={manageSubscription} className="w-full text-sm border border-blue-300 text-blue-700 py-2 rounded-lg hover:bg-blue-100">
+                Manage Subscription
+              </button>
+            </div>
+          ) : (
+            <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+              <p className="text-sm font-semibold mb-1">Free Plan</p>
+              <div className="flex justify-between text-xs text-gray-500 mb-1">
+                <span>Forms this month</span>
+                <span>{user.forms_used_this_month} / {user.free_forms_per_month}</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-1.5 mb-3">
+                <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (user.forms_used_this_month / user.free_forms_per_month) * 100)}%` }} />
+              </div>
+              <button onClick={upgrade} disabled={busy} className="w-full bg-blue-600 text-white text-sm py-2.5 rounded-lg hover:bg-blue-700 font-semibold mb-1">
+                Upgrade to Pro — $19/mo
+              </button>
+              <p className="text-xs text-gray-400 text-center">Unlimited forms · Depth 1–10 · Templates</p>
+            </div>
+          )}
+
+          <button onClick={logout} className="w-full text-sm border border-gray-200 text-gray-600 py-2.5 rounded-xl hover:bg-gray-50">
+            Sign Out
+          </button>
+        </>
+      )}
+
+      <div className="pt-4 border-t border-gray-100">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400 justify-center">
+          <a href="/privacy" className="hover:text-gray-600">Privacy</a>
+          <a href="/terms" className="hover:text-gray-600">Terms</a>
+          <a href="/security" className="hover:text-gray-600">Security</a>
+          <a href="mailto:contact@intakeforge.com" className="hover:text-gray-600">Contact</a>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-      {/* Sidebar */}
-      <aside className="w-72 bg-white border-r border-gray-200 flex flex-col">
+    <div className="flex flex-col md:flex-row min-h-screen bg-gray-50 font-sans">
+
+      {/* ── Desktop sidebar ── */}
+      <aside className="hidden md:flex w-72 bg-white border-r border-gray-200 flex-col h-screen sticky top-0">
+        {/* Header */}
         <div className="p-4 border-b border-gray-100">
           <div className="flex items-center justify-between mb-3">
             <h1 className="text-lg font-bold text-gray-900">IntakeForge</h1>
@@ -222,6 +363,7 @@ export default function HomePage() {
           )}
         </div>
 
+        {/* Billing status */}
         {connected && user && (
           <div className="px-4 py-3 border-b border-gray-100">
             {isPro ? (
@@ -241,25 +383,25 @@ export default function HomePage() {
                 <button onClick={upgrade} disabled={busy} className="w-full bg-blue-600 text-white text-xs py-1.5 rounded-lg hover:bg-blue-700 font-semibold">
                   Upgrade to Pro — $19/mo
                 </button>
-                <p className="text-xs text-gray-400 mt-1">Unlimited forms · Depth 1–10 · Templates</p>
               </div>
             )}
           </div>
         )}
 
+        {/* Generate inputs */}
         <div className="p-4 border-b border-gray-100">
           <textarea
             className="w-full border border-gray-200 rounded-lg p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
             rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe your intake form..."
+            placeholder="Describe your intake form…"
           />
           <div className="mt-2">
             <div className="flex justify-between text-xs text-gray-500 mb-1">
               <span>Depth</span>
-              <span className={depthLocked ? "text-orange-500 font-semibold" : ""}>{DEPTH_LABELS[depth]}{depthLocked ? " 🔒" : ""}</span>
+              <span className={depthLocked ? "text-orange-500 font-semibold" : ""}>{depth} — {DEPTH_LABELS[depth]}{depthLocked ? " 🔒" : ""}</span>
             </div>
             <input type="range" min={1} max={10} value={depth} onChange={(e) => setDepth(Number(e.target.value))} className="w-full accent-blue-600" />
-            {depthLocked && <p className="text-xs text-orange-500 mt-1">Depth {depth} requires Pro plan.</p>}
+            {depthLocked && <p className="text-xs text-orange-500 mt-1">Depth {depth} requires Pro.</p>}
           </div>
           <button onClick={generate} disabled={busy || !connected}
             className="mt-3 w-full bg-blue-600 text-white text-sm py-2 rounded-lg hover:bg-blue-700 disabled:opacity-40 font-semibold">
@@ -267,6 +409,7 @@ export default function HomePage() {
           </button>
         </div>
 
+        {/* Drafts / templates list */}
         {connected && (
           <>
             <div className="flex border-b border-gray-100">
@@ -301,126 +444,274 @@ export default function HomePage() {
         </div>
       </aside>
 
-      {/* Main */}
-      <main className="flex-1 overflow-y-auto p-6">
-        {error && (
-          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm flex justify-between">
-            <span>{error}</span>
-            <button onClick={() => setError(null)} className="ml-4 font-bold">×</button>
+      {/* ── Mobile top bar ── */}
+      <header className="md:hidden sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+        <h1 className="text-base font-bold text-gray-900">
+          IntakeForge {isPro && <span className="bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full ml-1">PRO</span>}
+        </h1>
+        {user ? (
+          <div className="flex items-center gap-2">
+            {user.picture && <img src={user.picture} className="w-7 h-7 rounded-full" alt="" />}
+            <span className="text-xs text-gray-600 max-w-[120px] truncate">{user.name || user.email}</span>
           </div>
+        ) : (
+          <button onClick={connectGoogle} className="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg">
+            Connect Google
+          </button>
         )}
+      </header>
 
-        {!connected && (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="text-5xl mb-4">📋</div>
-            <h2 className="text-2xl font-bold mb-2">Welcome to IntakeForge</h2>
-            <p className="text-gray-500 mb-6 max-w-md">Connect your Google account to generate, edit, and publish professional intake forms in seconds.</p>
-            <button onClick={connectGoogle} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-blue-700">
-              Connect Google to Get Started
-            </button>
-          </div>
-        )}
+      {/* ── Main content area ── */}
+      <div className="flex-1 flex flex-col md:h-screen md:overflow-hidden">
 
-        {connected && !draft && (
-          <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
-            <div className="text-4xl mb-3">✨</div>
-            <p className="text-lg font-medium">Enter a prompt and click Generate</p>
-            <p className="text-sm mt-1">or select a draft from the sidebar</p>
-          </div>
-        )}
+        {/* Mobile tab content */}
+        <div className="md:hidden flex-1 overflow-y-auto pb-20">
+          {error && (
+            <div className="m-4 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm flex justify-between">
+              <span>{error}</span>
+              <button onClick={() => setError(null)} className="ml-4 font-bold">×</button>
+            </div>
+          )}
 
-        {draft && (
-          <div className="max-w-3xl mx-auto">
-            <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
-              <input className="text-xl font-bold w-full border-none outline-none mb-1"
-                value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
-              <textarea className="text-sm text-gray-500 w-full border-none outline-none resize-none"
-                rows={2} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
-              <div className="flex gap-2 mt-3 flex-wrap">
-                <button onClick={() => save(false)} disabled={busy} className="text-sm px-4 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40">Save Draft</button>
-                <button onClick={() => save(true)} disabled={busy} className="text-sm px-4 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40">Approve</button>
-                <button onClick={publish} disabled={!draft.approved || busy}
-                  className="text-sm px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40">
-                  {draft.form_public_link ? "Re-publish" : "Publish to Google"}
-                </button>
-                <button onClick={() => setShowClone(!showClone)}
-                  className="text-sm px-4 py-1.5 border border-blue-300 text-blue-600 rounded-lg hover:bg-blue-50">
-                  Use as Template
-                </button>
-              </div>
+          {mobileTab === "generate" && (
+            <div>
+              <GeneratePanel />
+              {draft && (
+                <div className="px-4 pb-4 space-y-3">
+                  <div className="bg-white rounded-xl border border-gray-200 p-4">
+                    <input className="text-lg font-bold w-full border-none outline-none mb-1"
+                      value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+                    <textarea className="text-sm text-gray-500 w-full border-none outline-none resize-none"
+                      rows={2} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+                    <div className="flex flex-col gap-2 mt-3">
+                      <div className="flex gap-2">
+                        <button onClick={() => save(false)} disabled={busy} className="flex-1 text-sm py-2.5 border border-gray-300 rounded-xl hover:bg-gray-50 disabled:opacity-40">Save</button>
+                        <button onClick={() => save(true)} disabled={busy} className="flex-1 text-sm py-2.5 border border-gray-300 rounded-xl hover:bg-gray-50 disabled:opacity-40">Approve</button>
+                      </div>
+                      <button onClick={publish} disabled={!draft.approved || busy}
+                        className="w-full text-sm py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-40 font-semibold">
+                        {draft.form_public_link ? "Re-publish to Google" : "Publish to Google Forms"}
+                      </button>
+                      <button onClick={() => setShowClone(!showClone)}
+                        className="w-full text-sm py-2.5 border border-blue-300 text-blue-600 rounded-xl hover:bg-blue-50">
+                        Use as Template
+                      </button>
+                    </div>
 
-              {showClone && (
-                <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                  <input className="w-full border border-gray-200 rounded p-2 text-sm mb-2"
-                    placeholder="New form title" value={cloneTitle} onChange={(e) => setCloneTitle(e.target.value)} />
-                  <label className="flex items-center gap-2 text-sm mb-2">
-                    <input type="checkbox" checked={makeTemplate} onChange={(e) => setMakeTemplate(e.target.checked)} />
-                    Save as reusable template {!isPro && <span className="text-orange-500 text-xs">(Pro only)</span>}
-                  </label>
-                  {makeTemplate && (
-                    <input className="w-full border border-gray-200 rounded p-2 text-sm mb-2"
-                      placeholder="Template name" value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
-                  )}
-                  <div className="flex gap-2">
-                    <button onClick={cloneForm} disabled={busy || !cloneTitle.trim()} className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40">Clone</button>
-                    <button onClick={() => setShowClone(false)} className="text-sm px-3 py-1.5 border border-gray-300 rounded-lg">Cancel</button>
+                    {showClone && (
+                      <div className="mt-3 p-3 bg-gray-50 rounded-xl border border-gray-200">
+                        <input className="w-full border border-gray-200 rounded-lg p-2 text-sm mb-2"
+                          placeholder="New form title" value={cloneTitle} onChange={(e) => setCloneTitle(e.target.value)} />
+                        <label className="flex items-center gap-2 text-sm mb-2">
+                          <input type="checkbox" checked={makeTemplate} onChange={(e) => setMakeTemplate(e.target.checked)} />
+                          Save as template {!isPro && <span className="text-orange-500 text-xs">(Pro only)</span>}
+                        </label>
+                        {makeTemplate && (
+                          <input className="w-full border border-gray-200 rounded-lg p-2 text-sm mb-2"
+                            placeholder="Template name" value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
+                        )}
+                        <div className="flex gap-2">
+                          <button onClick={cloneForm} disabled={busy || !cloneTitle.trim()} className="flex-1 text-sm py-2 bg-blue-600 text-white rounded-lg disabled:opacity-40">Clone</button>
+                          <button onClick={() => setShowClone(false)} className="flex-1 text-sm py-2 border border-gray-300 rounded-lg">Cancel</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {draft.form_public_link && (
+                      <div className="mt-3 flex flex-col gap-1.5 text-sm">
+                        <a href={draft.form_public_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">↗ Open public form</a>
+                        {draft.form_edit_link && <a href={draft.form_edit_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">↗ Edit in Google Forms</a>}
+                        {draft.sheet_link && <a href={draft.sheet_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">↗ Response sheet</a>}
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
 
-              {draft.form_public_link && (
-                <div className="mt-3 flex gap-3 text-xs flex-wrap">
-                  <a href={draft.form_public_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Public form ↗</a>
-                  {draft.form_edit_link && <a href={draft.form_edit_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Edit in Google ↗</a>}
-                  {draft.sheet_link && <a href={draft.sheet_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Response sheet ↗</a>}
+                  {draft.schema.sections.map((section, si) => (
+                    <div key={si} className="bg-white rounded-xl border border-gray-200 p-4">
+                      <input className="font-semibold text-base w-full border-none outline-none mb-1"
+                        value={section.title}
+                        onChange={(e) => {
+                          const sections = draft.schema.sections.map((s, i) => i !== si ? s : { ...s, title: e.target.value });
+                          setDraft({ ...draft, schema: { ...draft.schema, sections } });
+                        }} />
+                      <input className="text-xs text-gray-400 w-full border-none outline-none mb-3"
+                        value={section.description}
+                        onChange={(e) => {
+                          const sections = draft.schema.sections.map((s, i) => i !== si ? s : { ...s, description: e.target.value });
+                          setDraft({ ...draft, schema: { ...draft.schema, sections } });
+                        }} />
+                      {section.questions.map((q, qi) => (
+                        <div key={qi} className="mb-3 p-3 bg-gray-50 rounded-xl">
+                          <div className="flex items-start gap-2 mb-2">
+                            <input className="flex-1 text-sm font-medium border-none bg-transparent outline-none"
+                              value={q.label} onChange={(e) => updateQuestion(si, qi, "label", e.target.value)} />
+                            <button onClick={() => removeQuestion(si, qi)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <select className="flex-1 text-xs border border-gray-200 rounded-lg p-1.5 bg-white"
+                              value={q.type} onChange={(e) => updateQuestion(si, qi, "type", e.target.value as QuestionType)}>
+                              {QUESTION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                            <label className="flex items-center gap-1 text-xs text-gray-500">
+                              <input type="checkbox" checked={q.required} onChange={(e) => updateQuestion(si, qi, "required", e.target.checked)} />
+                              Required
+                            </label>
+                          </div>
+                          {(q.type === "multiple_choice" || q.type === "checkbox") && (
+                            <textarea className="w-full text-xs text-gray-500 border border-gray-200 rounded-lg p-1.5 bg-white outline-none resize-none mt-2"
+                              rows={2} placeholder="Options (one per line)"
+                              value={(q.options || []).join("\n")}
+                              onChange={(e) => updateQuestion(si, qi, "options", e.target.value.split("\n").filter(Boolean))} />
+                          )}
+                        </div>
+                      ))}
+                      <button onClick={() => addQuestion(si)} className="text-xs text-blue-600 hover:underline">+ Add question</button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
+          )}
 
-            {draft.schema.sections.map((section, si) => (
-              <div key={si} className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
-                <input className="font-semibold text-base w-full border-none outline-none mb-1"
-                  value={section.title}
-                  onChange={(e) => {
-                    const sections = draft.schema.sections.map((s, i) => i !== si ? s : { ...s, title: e.target.value });
-                    setDraft({ ...draft, schema: { ...draft.schema, sections } });
-                  }} />
-                <input className="text-xs text-gray-400 w-full border-none outline-none mb-3"
-                  value={section.description}
-                  onChange={(e) => {
-                    const sections = draft.schema.sections.map((s, i) => i !== si ? s : { ...s, description: e.target.value });
-                    setDraft({ ...draft, schema: { ...draft.schema, sections } });
-                  }} />
-                {section.questions.map((q, qi) => (
-                  <div key={qi} className="flex gap-2 items-start mb-2 p-2 bg-gray-50 rounded-lg">
-                    <div className="flex-1">
-                      <input className="w-full text-sm font-medium border-none bg-transparent outline-none"
-                        value={q.label} onChange={(e) => updateQuestion(si, qi, "label", e.target.value)} />
-                      {(q.type === "multiple_choice" || q.type === "checkbox") && (
-                        <textarea className="w-full text-xs text-gray-500 border-none bg-transparent outline-none resize-none mt-1"
-                          rows={2} placeholder="Options (one per line)"
-                          value={(q.options || []).join("\n")}
-                          onChange={(e) => updateQuestion(si, qi, "options", e.target.value.split("\n").filter(Boolean))} />
-                      )}
-                    </div>
-                    <select className="text-xs border border-gray-200 rounded p-1 bg-white"
-                      value={q.type} onChange={(e) => updateQuestion(si, qi, "type", e.target.value as QuestionType)}>
-                      {QUESTION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                    <label className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap">
-                      <input type="checkbox" checked={q.required} onChange={(e) => updateQuestion(si, qi, "required", e.target.checked)} />
-                      Req
+          {mobileTab === "forms" && <FormsPanel />}
+          {mobileTab === "account" && <AccountPanel />}
+        </div>
+
+        {/* Mobile bottom nav */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-10">
+          {([
+            { key: "generate", label: "Generate", icon: "✨" },
+            { key: "forms", label: "My Forms", icon: "📋" },
+            { key: "account", label: "Account", icon: "👤" },
+          ] as const).map(({ key, label, icon }) => (
+            <button key={key} onClick={() => setMobileTab(key)}
+              className={`flex-1 flex flex-col items-center py-2.5 text-xs gap-0.5 ${mobileTab === key ? "text-blue-600" : "text-gray-400"}`}>
+              <span className="text-lg leading-none">{icon}</span>
+              <span className="font-medium">{label}</span>
+            </button>
+          ))}
+        </nav>
+
+        {/* ── Desktop main panel ── */}
+        <main className="hidden md:block flex-1 overflow-y-auto p-6">
+          {error && (
+            <div className="mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm flex justify-between">
+              <span>{error}</span>
+              <button onClick={() => setError(null)} className="ml-4 font-bold">×</button>
+            </div>
+          )}
+
+          {!connected && (
+            <div className="flex flex-col items-center justify-center h-full text-center">
+              <div className="text-5xl mb-4">📋</div>
+              <h2 className="text-2xl font-bold mb-2">Welcome to IntakeForge</h2>
+              <p className="text-gray-500 mb-6 max-w-md">Connect your Google account to generate, edit, and publish professional intake forms in seconds.</p>
+              <button onClick={connectGoogle} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-blue-700">
+                Connect Google to Get Started
+              </button>
+            </div>
+          )}
+
+          {connected && !draft && (
+            <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
+              <div className="text-4xl mb-3">✨</div>
+              <p className="text-lg font-medium">Enter a prompt and click Generate</p>
+              <p className="text-sm mt-1">or select a draft from the sidebar</p>
+            </div>
+          )}
+
+          {draft && (
+            <div className="max-w-3xl mx-auto">
+              <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+                <input className="text-xl font-bold w-full border-none outline-none mb-1"
+                  value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+                <textarea className="text-sm text-gray-500 w-full border-none outline-none resize-none"
+                  rows={2} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+                <div className="flex gap-2 mt-3 flex-wrap">
+                  <button onClick={() => save(false)} disabled={busy} className="text-sm px-4 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40">Save Draft</button>
+                  <button onClick={() => save(true)} disabled={busy} className="text-sm px-4 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40">Approve</button>
+                  <button onClick={publish} disabled={!draft.approved || busy}
+                    className="text-sm px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40">
+                    {draft.form_public_link ? "Re-publish" : "Publish to Google"}
+                  </button>
+                  <button onClick={() => setShowClone(!showClone)}
+                    className="text-sm px-4 py-1.5 border border-blue-300 text-blue-600 rounded-lg hover:bg-blue-50">
+                    Use as Template
+                  </button>
+                </div>
+
+                {showClone && (
+                  <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <input className="w-full border border-gray-200 rounded p-2 text-sm mb-2"
+                      placeholder="New form title" value={cloneTitle} onChange={(e) => setCloneTitle(e.target.value)} />
+                    <label className="flex items-center gap-2 text-sm mb-2">
+                      <input type="checkbox" checked={makeTemplate} onChange={(e) => setMakeTemplate(e.target.checked)} />
+                      Save as reusable template {!isPro && <span className="text-orange-500 text-xs">(Pro only)</span>}
                     </label>
-                    <button onClick={() => removeQuestion(si, qi)} className="text-red-400 hover:text-red-600 text-sm">×</button>
+                    {makeTemplate && (
+                      <input className="w-full border border-gray-200 rounded p-2 text-sm mb-2"
+                        placeholder="Template name" value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
+                    )}
+                    <div className="flex gap-2">
+                      <button onClick={cloneForm} disabled={busy || !cloneTitle.trim()} className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40">Clone</button>
+                      <button onClick={() => setShowClone(false)} className="text-sm px-3 py-1.5 border border-gray-300 rounded-lg">Cancel</button>
+                    </div>
                   </div>
-                ))}
-                <button onClick={() => addQuestion(si)} className="text-xs text-blue-600 hover:underline mt-1">+ Add question</button>
-              </div>
-            ))}
-          </div>
-        )}
-      </main>
+                )}
 
+                {draft.form_public_link && (
+                  <div className="mt-3 flex gap-3 text-xs flex-wrap">
+                    <a href={draft.form_public_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Public form ↗</a>
+                    {draft.form_edit_link && <a href={draft.form_edit_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Edit in Google ↗</a>}
+                    {draft.sheet_link && <a href={draft.sheet_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Response sheet ↗</a>}
+                  </div>
+                )}
+              </div>
+
+              {draft.schema.sections.map((section, si) => (
+                <div key={si} className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+                  <input className="font-semibold text-base w-full border-none outline-none mb-1"
+                    value={section.title}
+                    onChange={(e) => {
+                      const sections = draft.schema.sections.map((s, i) => i !== si ? s : { ...s, title: e.target.value });
+                      setDraft({ ...draft, schema: { ...draft.schema, sections } });
+                    }} />
+                  <input className="text-xs text-gray-400 w-full border-none outline-none mb-3"
+                    value={section.description}
+                    onChange={(e) => {
+                      const sections = draft.schema.sections.map((s, i) => i !== si ? s : { ...s, description: e.target.value });
+                      setDraft({ ...draft, schema: { ...draft.schema, sections } });
+                    }} />
+                  {section.questions.map((q, qi) => (
+                    <div key={qi} className="flex gap-2 items-start mb-2 p-2 bg-gray-50 rounded-lg">
+                      <div className="flex-1">
+                        <input className="w-full text-sm font-medium border-none bg-transparent outline-none"
+                          value={q.label} onChange={(e) => updateQuestion(si, qi, "label", e.target.value)} />
+                        {(q.type === "multiple_choice" || q.type === "checkbox") && (
+                          <textarea className="w-full text-xs text-gray-500 border-none bg-transparent outline-none resize-none mt-1"
+                            rows={2} placeholder="Options (one per line)"
+                            value={(q.options || []).join("\n")}
+                            onChange={(e) => updateQuestion(si, qi, "options", e.target.value.split("\n").filter(Boolean))} />
+                        )}
+                      </div>
+                      <select className="text-xs border border-gray-200 rounded p-1 bg-white"
+                        value={q.type} onChange={(e) => updateQuestion(si, qi, "type", e.target.value as QuestionType)}>
+                        {QUESTION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                      <label className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap">
+                        <input type="checkbox" checked={q.required} onChange={(e) => updateQuestion(si, qi, "required", e.target.checked)} />
+                        Req
+                      </label>
+                      <button onClick={() => removeQuestion(si, qi)} className="text-red-400 hover:text-red-600 text-sm">×</button>
+                    </div>
+                  ))}
+                  <button onClick={() => addQuestion(si)} className="text-xs text-blue-600 hover:underline mt-1">+ Add question</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }
