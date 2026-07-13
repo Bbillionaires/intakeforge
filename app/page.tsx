@@ -289,6 +289,16 @@ export default function HomePage() {
             </div>
           </>
         )}
+
+        {/* Policy links */}
+        <div className="mt-auto p-4 border-t border-gray-100">
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400">
+            <a href="/privacy" className="hover:text-gray-600">Privacy</a>
+            <a href="/terms" className="hover:text-gray-600">Terms</a>
+            <a href="/security" className="hover:text-gray-600">Security</a>
+            <a href="mailto:contact@intakeforge.com" className="hover:text-gray-600">Contact</a>
+          </div>
+        </div>
       </aside>
 
       {/* Main */}
@@ -410,14 +420,7 @@ export default function HomePage() {
           </div>
         )}
       </main>
-      <footer className="text-center py-4 text-xs text-gray-400 border-t border-gray-100 mt-8">
-        <div className="flex justify-center gap-4 flex-wrap">
-          <a href="/privacy" className="hover:text-gray-600">Privacy Policy</a>
-          <a href="/terms" className="hover:text-gray-600">Terms of Service</a>
-          <a href="/security" className="hover:text-gray-600">Security</a>
-          <a href="mailto:contact@intakeforge.com" className="hover:text-gray-600">Contact</a>
-        </div>
-      </footer>
+
     </div>
   );
 }
