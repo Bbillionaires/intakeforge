@@ -23,15 +23,15 @@ async function proxy(req: NextRequest) {
   const auth = req.headers.get("authorization");
   if (auth) headers["authorization"] = auth;
   const contentType = req.headers.get("content-type") || "";
-  // For multipart/form-data let the browser boundary pass through; for others set JSON
-  if (req.method !== "GET" && req.method !== "HEAD" && !contentType.includes("multipart/form-data")) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    // Always forward content-type so backend can parse multipart boundary
     headers["content-type"] = contentType || "application/json";
   }
 
   let body: BodyInit | undefined;
   if (req.method !== "GET" && req.method !== "HEAD") {
     body = contentType.includes("multipart/form-data")
-      ? await req.blob()   // pass raw multipart bytes unchanged
+      ? await req.blob()
       : await req.text();
   }
 
