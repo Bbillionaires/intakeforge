@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import stripe
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Header, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Header, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from google.auth.transport.requests import Request as GoogleRequest
@@ -238,7 +238,7 @@ def create_draft(
 @app.post("/forms/upload", response_model=DraftResponse)
 async def upload_document(
     file: UploadFile = File(...),
-    depth: int = 5,
+    depth: int = Query(default=5),
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ):

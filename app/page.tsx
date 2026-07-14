@@ -206,9 +206,8 @@ export default function HomePage() {
     try {
       const form = new FormData();
       form.append("file", file);
-      form.append("depth", String(depth));
       const token = getToken();
-      const res = await fetch(`${API}?path=${encodeURIComponent("/forms/upload")}`, {
+      const res = await fetch(`${API}?path=${encodeURIComponent(`/forms/upload?depth=${depth}`)}`, {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: form,
