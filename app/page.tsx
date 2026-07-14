@@ -207,7 +207,9 @@ export default function HomePage() {
       const form = new FormData();
       form.append("file", file);
       const token = getToken();
-      const res = await fetch(`${API}?path=${encodeURIComponent(`/forms/upload?depth=${depth}`)}`, {
+      // Upload direct to backend — multipart doesn't survive the Next.js proxy cleanly
+      const BACKEND = "https://intakeforge-backend-527226736949.us-central1.run.app";
+      const res = await fetch(`${BACKEND}/forms/upload?depth=${depth}`, {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: form,
