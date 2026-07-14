@@ -516,6 +516,9 @@ export default function HomePage() {
               <GeneratePanel />
               {draft && (
                 <div className="px-4 pb-4 space-y-3">
+                  <button onClick={() => setDraft(null)} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800">
+                    ← New Form
+                  </button>
                   <div className="bg-white rounded-xl border border-gray-200 p-4">
                     <input className="text-lg font-bold w-full border-none outline-none mb-1"
                       value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
@@ -680,6 +683,9 @@ export default function HomePage() {
 
           {draft && (
             <div className="max-w-3xl mx-auto">
+              <button onClick={() => setDraft(null)} className="mb-4 flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800">
+                ← New Form
+              </button>
               <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
                 <input className="text-xl font-bold w-full border-none outline-none mb-1"
                   value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
