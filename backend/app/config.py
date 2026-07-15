@@ -16,7 +16,7 @@ class Settings(BaseModel):
     stripe_secret_key: str = os.getenv("STRIPE_SECRET_KEY", "")
     stripe_webhook_secret: str = os.getenv("STRIPE_WEBHOOK_SECRET", "")
     stripe_pro_price_id: str = os.getenv("STRIPE_PRO_PRICE_ID", "")
-    free_forms_per_month: int = 3
+    free_forms_per_month: int = int(os.getenv("FREE_FORMS_PER_MONTH", "999"))
     free_max_depth: int = 5
 
 
