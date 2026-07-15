@@ -467,26 +467,14 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Generate inputs */}
+        {/* Section 1 — Prompt */}
         <div className="p-4 border-b border-gray-100">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Prompt</p>
           <textarea
             className="w-full border border-gray-200 rounded-lg p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
             rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)}
-            placeholder={attachedFile ? "Describe the angle or audience… (optional)" : "Describe your intake form…"}
+            placeholder="Describe your intake form, survey, or questionnaire…"
           />
-          {attachedFile ? (
-            <div className="mt-2 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5">
-              <span className="text-blue-600 text-xs">📄</span>
-              <span className="text-xs text-blue-800 font-medium truncate flex-1">{attachedFile.name}</span>
-              <button onClick={removeAttachment} className="text-blue-400 hover:text-red-500">×</button>
-            </div>
-          ) : (
-            <label className={`mt-2 flex items-center gap-1.5 text-xs text-gray-400 hover:text-blue-600 cursor-pointer ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
-              <span>📎</span> {uploading ? "Reading…" : "Attach a document"}
-              <input type="file" className="hidden" accept=".txt,.md,.csv,.docx,.doc"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = ""; }} />
-            </label>
-          )}
           <div className="mt-2">
             <div className="flex justify-between text-xs text-gray-500 mb-1">
               <span>Depth</span>
@@ -498,6 +486,40 @@ export default function HomePage() {
           <button onClick={generate} disabled={busy || !connected}
             className="mt-3 w-full bg-blue-600 text-white text-sm py-2 rounded-lg hover:bg-blue-700 disabled:opacity-40 font-semibold">
             {busy ? "Generating…" : "Generate Form"}
+          </button>
+        </div>
+
+        {/* Section 2 — Document Upload */}
+        <div className="p-4 border-b border-gray-100">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">From Document</p>
+          {attachedFile ? (
+            <div className="mb-2 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5">
+              <span className="text-blue-600 text-xs">📄</span>
+              <span className="text-xs text-blue-800 font-medium truncate flex-1">{attachedFile.name}</span>
+              <button onClick={removeAttachment} className="text-blue-400 hover:text-red-500 text-base">×</button>
+            </div>
+          ) : (
+            <label className={`flex items-center gap-2 border border-dashed border-gray-300 rounded-lg p-2 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 cursor-pointer mb-2 ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
+              <span className="text-base">📎</span>
+              {uploading ? "Reading file…" : "Click to attach DOCX · TXT · CSV"}
+              <input type="file" className="hidden" accept=".txt,.md,.csv,.docx,.doc"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = ""; }} />
+            </label>
+          )}
+          <textarea
+            className="w-full border border-gray-200 rounded-lg p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+            rows={2}
+            value={attachedFile ? prompt : ""}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Describe the form's purpose or audience… (optional)"
+            disabled={!attachedFile}
+          />
+          <button
+            onClick={generate}
+            disabled={busy || !connected || !attachedFile}
+            className="mt-2 w-full bg-gray-800 text-white text-sm py-2 rounded-lg hover:bg-gray-900 disabled:opacity-40 font-semibold"
+          >
+            {busy && attachedFile ? "Generating…" : "Generate from Document"}
           </button>
         </div>
 
