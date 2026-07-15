@@ -190,7 +190,7 @@ def _generate_with_claude(prompt: str, depth: int = 5) -> FormSchema:
     }
 
     response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-3-5-haiku-20241022",
         max_tokens=4096,
         tools=[tool_schema],
         tool_choice={"type": "tool", "name": "create_form"},
