@@ -142,8 +142,8 @@ def preflight(rest: str):
 
 
 @app.get("/health")
-def health() -> dict[str, bool]:
-    return {"ok": True}
+def health() -> dict:
+    return {"ok": True, "claude": bool(settings.anthropic_api_key)}
 
 
 @app.get("/auth/google/login")
