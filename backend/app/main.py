@@ -149,8 +149,25 @@ def preflight(rest: str, request: Request):
 
 
 @app.get("/health")
-def health() -> dict[str, bool]:
-    return {"ok": True}
+def health() -> dict:
+    return {"ok": True, "claude": bool(settings.anthropic_api_key)}
+
+
+@app.get("/test-claude")
+def test_claude() -> dict:
+    if not settings.anthropic_api_key:
+        return {"error": "No API key set"}
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=50,
+            messages=[{"role": "user", "content": "Say hello"}],
+        )
+        return {"ok": True, "response": resp.content[0].text}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/auth/google/login")
