@@ -296,11 +296,11 @@ export default function HomePage() {
             {busy ? "Generating…" : "Generate Form"}
           </button>
           <label className={`mt-2 w-full flex items-center justify-center gap-2 border border-blue-300 text-blue-600 text-sm py-3 rounded-xl hover:bg-blue-50 cursor-pointer font-medium ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
-            <span>📄</span> {uploading ? "Converting…" : "Upload a document instead"}
+            <span>📄</span> {uploading ? "Reading…" : attachedFile ? `📎 ${attachedFile.name}` : "Attach a document"}
             <input type="file" className="hidden" accept=".txt,.md,.csv,.docx,.doc"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = ""; }} />
           </label>
-          <p className="text-xs text-gray-400 mt-1 text-center">PDF · DOCX · TXT — auto-converted to a form</p>
+          <p className="text-xs text-gray-400 mt-1 text-center">DOCX · TXT · CSV — used as reference</p>
         </>
       )}
 
