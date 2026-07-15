@@ -27,10 +27,21 @@ const DEPTH_LABELS: Record<number, string> = {
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
+  // Check cookie first, fall back to localStorage
+  const cookie = document.cookie.split("; ").find(r => r.startsWith("if_token="));
+  if (cookie) return cookie.split("=")[1];
   return localStorage.getItem("intakeforge_token");
 }
-function setToken(t: string) { localStorage.setItem("intakeforge_token", t); }
-function clearToken() { localStorage.removeItem("intakeforge_token"); }
+function setToken(t: string) {
+  // Store in both cookie (persists across sessions) and localStorage (fallback)
+  const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toUTCString();
+  document.cookie = `if_token=${t}; expires=${expires}; path=/; SameSite=Lax`;
+  localStorage.setItem("intakeforge_token", t);
+}
+function clearToken() {
+  document.cookie = "if_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+  localStorage.removeItem("intakeforge_token");
+}
 
 export default function HomePage() {
   const [prompt, setPrompt] = useState("Create a home buyer intake form");
