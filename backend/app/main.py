@@ -146,6 +146,23 @@ def health() -> dict:
     return {"ok": True, "claude": bool(settings.anthropic_api_key)}
 
 
+@app.get("/test-claude")
+def test_claude() -> dict:
+    if not settings.anthropic_api_key:
+        return {"error": "No API key set"}
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        resp = client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            max_tokens=50,
+            messages=[{"role": "user", "content": "Say hello"}],
+        )
+        return {"ok": True, "response": resp.content[0].text}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/auth/google/login")
 def google_login() -> dict[str, str]:
     flow = Flow.from_client_config(
