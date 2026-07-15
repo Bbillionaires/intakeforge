@@ -44,8 +44,10 @@ function clearToken() {
 }
 
 export default function HomePage() {
-  const [prompt, setPrompt] = useState("Create a home buyer intake form");
+  const [prompt, setPrompt] = useState("");
   const [depth, setDepth] = useState(5);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [attachedText, setAttachedText] = useState<string>("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [templates, setTemplates] = useState<Draft[]>([]);
@@ -134,12 +136,19 @@ export default function HomePage() {
   }
 
   async function generate() {
+    if (!prompt.trim() && !attachedFile) { setError("Enter a description or attach a document."); return; }
     if (depthLocked) { setError(`Depth ${depth} requires Pro. Upgrade or reduce depth.`); return; }
     setBusy(true); setError(null);
     try {
+      let finalPrompt = prompt.trim();
+      if (attachedText) {
+        finalPrompt = finalPrompt
+          ? `${finalPrompt}\n\nUse the following document as reference material to make the form specific and relevant:\n\nDocument (${attachedFile?.name}):\n${attachedText}`
+          : `Based on the following document, create a professional intake form. Use the document's content, purpose, and subject matter to generate specific, relevant questions:\n\nDocument (${attachedFile?.name}):\n${attachedText}`;
+      }
       const created = await api<Draft>("/forms/generate", {
         method: "POST",
-        body: JSON.stringify({ prompt, depth }),
+        body: JSON.stringify({ prompt: finalPrompt, depth }),
       });
       setDraft(created);
       setMobileTab("generate");
@@ -212,44 +221,37 @@ export default function HomePage() {
     setDraft({ ...draft, schema: { ...draft.schema, sections } });
   }
 
-  async function uploadFile(file: File) {
-    if (!connected) { setError("Connect your Google account first."); return; }
+  async function attachFile(file: File) {
     setUploading(true); setError(null);
     try {
-      let text = "";
       const name = file.name.toLowerCase();
-
+      let text = "";
       if (name.endsWith(".docx") || name.endsWith(".doc")) {
         const arrayBuffer = await file.arrayBuffer();
         const result = await mammoth.extractRawText({ arrayBuffer });
         text = result.value;
       } else if (name.endsWith(".pdf")) {
-        setError("PDF support coming soon. Please export your PDF as a Word doc (.docx) or text file (.txt) and upload again.");
-        setUploading(false);
+        setError("PDF support coming soon. Export as .docx or .txt and try again.");
         return;
       } else {
         text = await file.text();
       }
-
       if (!text.trim()) throw new Error("Could not extract any text from the file.");
-
-      const filePrompt = `Based on the following document, create a professional intake form with relevant questions that capture all key information from this document. Use the document's content, topics, and purpose to guide the form structure:\n\nDocument: ${file.name}\n\n${text.slice(0, 10000)}`;
-
-      const created = await api<Draft>("/forms/generate", {
-        method: "POST",
-        body: JSON.stringify({ prompt: filePrompt, depth }),
-      });
-      setDraft(created);
-      setMobileTab("generate");
-      await refresh();
+      setAttachedFile(file);
+      setAttachedText(text.slice(0, 10000));
     } catch (e) { setError((e as Error).message); }
     finally { setUploading(false); }
+  }
+
+  function removeAttachment() {
+    setAttachedFile(null);
+    setAttachedText("");
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault(); setDragOver(false);
     const file = e.dataTransfer.files[0];
-    if (file) uploadFile(file);
+    if (file) attachFile(file);
   }
 
   // ── Generate panel (used in sidebar on desktop, main view on mobile) ──
@@ -258,8 +260,23 @@ export default function HomePage() {
       <textarea
         className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
         rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)}
-        placeholder="Describe your intake form…"
+        placeholder={attachedFile ? "Describe the angle, purpose, or audience for this form… (optional)" : "Describe your intake form, survey, or questionnaire…"}
       />
+
+      {/* Attached file chip */}
+      {attachedFile ? (
+        <div className="mt-2 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+          <span className="text-blue-600 text-sm">📄</span>
+          <span className="text-sm text-blue-800 font-medium truncate flex-1">{attachedFile.name}</span>
+          <button onClick={removeAttachment} className="text-blue-400 hover:text-red-500 text-lg leading-none">×</button>
+        </div>
+      ) : (
+        <label className={`mt-2 flex items-center gap-2 text-xs text-gray-400 hover:text-blue-600 cursor-pointer ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
+          <span>📎</span> {uploading ? "Reading file…" : "Attach a document (DOCX, TXT, CSV)"}
+          <input type="file" className="hidden" accept=".txt,.md,.csv,.docx,.doc"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = ""; }} />
+        </label>
+      )}
       <div className="mt-3">
         <div className="flex justify-between text-xs text-gray-500 mb-1">
           <span>Depth</span>
@@ -455,8 +472,21 @@ export default function HomePage() {
           <textarea
             className="w-full border border-gray-200 rounded-lg p-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
             rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe your intake form…"
+            placeholder={attachedFile ? "Describe the angle or audience… (optional)" : "Describe your intake form…"}
           />
+          {attachedFile ? (
+            <div className="mt-2 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5">
+              <span className="text-blue-600 text-xs">📄</span>
+              <span className="text-xs text-blue-800 font-medium truncate flex-1">{attachedFile.name}</span>
+              <button onClick={removeAttachment} className="text-blue-400 hover:text-red-500">×</button>
+            </div>
+          ) : (
+            <label className={`mt-2 flex items-center gap-1.5 text-xs text-gray-400 hover:text-blue-600 cursor-pointer ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
+              <span>📎</span> {uploading ? "Reading…" : "Attach a document"}
+              <input type="file" className="hidden" accept=".txt,.md,.csv,.docx,.doc"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = ""; }} />
+            </label>
+          )}
           <div className="mt-2">
             <div className="flex justify-between text-xs text-gray-500 mb-1">
               <span>Depth</span>
@@ -677,20 +707,28 @@ export default function HomePage() {
                   dragOver ? "border-blue-500 bg-blue-50" : "border-gray-300 bg-white hover:border-blue-400 hover:bg-gray-50"
                 }`}
               >
-                <div className="text-5xl mb-4">{uploading ? "⏳" : "📄"}</div>
+                <div className="text-5xl mb-4">{uploading ? "⏳" : attachedFile ? "✅" : "📄"}</div>
                 <h2 className="text-xl font-bold mb-2 text-gray-800">
-                  {uploading ? "Converting document…" : "Drop a document to create a form"}
+                  {uploading ? "Reading document…" : attachedFile ? attachedFile.name : "Attach a document for a specific form"}
                 </h2>
-                <p className="text-gray-500 text-sm mb-6 max-w-xs mx-auto">
-                  Drop a resume, contract, PDF, Word doc, or any text file. IntakeForge will read it and generate a complete intake form automatically.
+                <p className="text-gray-500 text-sm mb-4 max-w-sm mx-auto">
+                  {attachedFile
+                    ? "Document attached! Now describe what kind of form you want in the sidebar, then click Generate Form."
+                    : "Drop a Word doc, text file, or CSV. The document becomes the reference — you describe the angle and purpose in the sidebar."}
                 </p>
                 <p className="text-xs text-gray-400 mb-6">Supports DOCX · TXT · MD · CSV</p>
 
-                <label className={`inline-flex items-center gap-2 cursor-pointer bg-blue-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-blue-700 transition text-sm ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
-                  <span>📂</span> Browse files
-                  <input type="file" className="hidden" accept=".txt,.md,.csv,.docx,.doc"
-                    onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
-                </label>
+                {attachedFile ? (
+                  <button onClick={removeAttachment} className="text-sm text-red-500 border border-red-200 px-4 py-2 rounded-xl hover:bg-red-50">
+                    × Remove document
+                  </button>
+                ) : (
+                  <label className={`inline-flex items-center gap-2 cursor-pointer bg-blue-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-blue-700 transition text-sm ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
+                    <span>📂</span> Browse files
+                    <input type="file" className="hidden" accept=".txt,.md,.csv,.docx,.doc"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = ""; }} />
+                  </label>
+                )}
 
                 {!connected && (
                   <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl text-sm text-yellow-800">
@@ -700,7 +738,7 @@ export default function HomePage() {
               </div>
 
               <div className="mt-6 text-center text-gray-400 text-sm">
-                <span>— or type a prompt in the sidebar and click <strong>Generate Form</strong> —</span>
+                <span>— or just type a prompt in the sidebar and click <strong>Generate Form</strong> —</span>
               </div>
             </div>
           )}
