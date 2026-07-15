@@ -215,6 +215,7 @@ def generate_form(prompt: str, depth: int = 5) -> FormSchema:
     if settings.anthropic_api_key:
         try:
             return _generate_with_claude(prompt, depth)
-        except Exception:
-            pass
+        except Exception as e:
+            import sys
+            print(f"Claude error: {e}", file=sys.stderr)
     return _generate_rule_based(prompt, depth)
