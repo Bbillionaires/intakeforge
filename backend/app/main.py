@@ -242,7 +242,7 @@ def create_draft(
     return draft_to_response(draft)
 
 
-@app.post("/forms/upload", response_model=DraftResponse)
+@app.post("/forms/upload")
 async def upload_document(
     file: UploadFile = File(...),
     depth: int = Query(default=5),
