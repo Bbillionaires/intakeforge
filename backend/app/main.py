@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import stripe
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Header, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Header, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from google.auth.transport.requests import Request as GoogleRequest
