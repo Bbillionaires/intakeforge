@@ -137,8 +137,15 @@ def draft_to_response(draft: FormDraft) -> DraftResponse:
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 @app.options("/{rest:path}")
-def preflight(rest: str):
-    return {}
+def preflight(rest: str, request: Request):
+    return JSONResponse(
+        content={},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Authorization, Content-Type",
+        },
+    )
 
 
 @app.get("/health")
