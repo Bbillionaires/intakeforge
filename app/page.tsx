@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import mammoth from "mammoth";
 
 type QuestionType = "short_text" | "long_text" | "multiple_choice" | "checkbox" | "date" | "number";
 type Question = { label: string; type: QuestionType; required: boolean; options?: string[] };
@@ -205,14 +206,24 @@ export default function HomePage() {
     setUploading(true); setError(null);
     try {
       let text = "";
-      if (file.name.toLowerCase().endsWith(".pdf")) {
-        setError("PDF upload coming soon. Please save as .txt or .docx and upload again.");
+      const name = file.name.toLowerCase();
+
+      if (name.endsWith(".docx") || name.endsWith(".doc")) {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        text = result.value;
+      } else if (name.endsWith(".pdf")) {
+        setError("PDF support coming soon. Please export your PDF as a Word doc (.docx) or text file (.txt) and upload again.");
         setUploading(false);
         return;
+      } else {
+        text = await file.text();
       }
-      text = await file.text();
-      if (!text.trim()) throw new Error("Could not read any text from the file.");
-      const filePrompt = `Based on the following document, create a professional intake form that captures all relevant information:\n\nDocument: ${file.name}\n\n${text.slice(0, 10000)}`;
+
+      if (!text.trim()) throw new Error("Could not extract any text from the file.");
+
+      const filePrompt = `Based on the following document, create a professional intake form with relevant questions that capture all key information from this document. Use the document's content, topics, and purpose to guide the form structure:\n\nDocument: ${file.name}\n\n${text.slice(0, 10000)}`;
+
       const created = await api<Draft>("/forms/generate", {
         method: "POST",
         body: JSON.stringify({ prompt: filePrompt, depth }),
