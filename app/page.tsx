@@ -204,19 +204,26 @@ export default function HomePage() {
     if (!connected) { setError("Connect your Google account first."); return; }
     setUploading(true); setError(null);
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const token = getToken();
-      // Upload direct to backend — multipart doesn't survive the Next.js proxy cleanly
-      const BACKEND = "https://intakeforge-backend-527226736949.us-central1.run.app";
-      const res = await fetch(`${BACKEND}/forms/upload?depth=${depth}`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: form,
+      // Read the file as text in the browser, then send as a normal JSON prompt
+      const text = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error("Could not read file"));
+        if (file.name.endsWith(".pdf")) {
+          reject(new Error("PDF reading requires the backend. Please use a .txt or .docx file, or type a prompt instead."));
+        } else {
+          reader.readAsText(file);
+        }
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Upload failed");
-      setDraft(data);
+      const truncated = text.slice(0, 10000);
+      const filePrompt = `Based on the following document, create a professional intake form that captures all relevant information:\n\nFilename: ${file.name}\n\n${truncated}`;
+      setPrompt(filePrompt);
+      // Generate immediately using the existing endpoint
+      const created = await api<Draft>("/forms/generate", {
+        method: "POST",
+        body: JSON.stringify({ prompt: filePrompt, depth }),
+      });
+      setDraft(created);
       setMobileTab("generate");
       await refresh();
     } catch (e) { setError((e as Error).message); }
@@ -257,7 +264,7 @@ export default function HomePage() {
           </button>
           <label className={`mt-2 w-full flex items-center justify-center gap-2 border border-blue-300 text-blue-600 text-sm py-3 rounded-xl hover:bg-blue-50 cursor-pointer font-medium ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
             <span>📄</span> {uploading ? "Converting…" : "Upload a document instead"}
-            <input type="file" className="hidden" accept=".pdf,.docx,.txt,.md,.csv"
+            <input type="file" className="hidden" accept=".txt,.md,.csv,.docx,.doc"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
           </label>
           <p className="text-xs text-gray-400 mt-1 text-center">PDF · DOCX · TXT — auto-converted to a form</p>
@@ -661,11 +668,11 @@ export default function HomePage() {
                 <p className="text-gray-500 text-sm mb-6 max-w-xs mx-auto">
                   Drop a resume, contract, PDF, Word doc, or any text file. IntakeForge will read it and generate a complete intake form automatically.
                 </p>
-                <p className="text-xs text-gray-400 mb-6">Supports PDF · DOCX · TXT · MD · CSV</p>
+                <p className="text-xs text-gray-400 mb-6">Supports TXT · MD · CSV · DOCX (text-based files)</p>
 
                 <label className={`inline-flex items-center gap-2 cursor-pointer bg-blue-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-blue-700 transition text-sm ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
                   <span>📂</span> Browse files
-                  <input type="file" className="hidden" accept=".pdf,.docx,.txt,.md,.csv"
+                  <input type="file" className="hidden" accept=".txt,.md,.csv,.docx,.doc"
                     onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
                 </label>
 
