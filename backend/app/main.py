@@ -102,15 +102,18 @@ def reset_monthly_usage_if_needed(user: User, session: Session) -> None:
         session.commit()
 
 
+OWNER_EMAILS = {"approvegroup@gmail.com", "henry@greenwood100inc.com"}
+
+
 def check_form_limit(user: User) -> None:
-    if user.plan == "pro":
+    if user.plan == "pro" or user.email in OWNER_EMAILS:
         return
     if user.forms_used_this_month >= settings.free_forms_per_month:
         raise HTTPException(402, f"Free plan limit reached ({settings.free_forms_per_month} forms/month). Upgrade to Pro.")
 
 
 def check_depth_limit(user: User, depth: int) -> None:
-    if user.plan == "pro":
+    if user.plan == "pro" or user.email in OWNER_EMAILS:
         return
     if depth > settings.free_max_depth:
         raise HTTPException(402, f"Depth {depth} requires Pro plan. Free plan supports depth 1–{settings.free_max_depth}.")
