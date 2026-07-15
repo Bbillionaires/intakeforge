@@ -17,6 +17,6 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - run: gcloud builds submit --tag gcr.io/intakeforge-498216/intakeforge-backend ./backend
+      - run: gcloud builds submit --tag gcr.io/intakeforge-498216/intakeforge-backend ./backend --suppress-logs
 
       - run: gcloud run deploy intakeforge-backend --image gcr.io/intakeforge-498216/intakeforge-backend --region us-central1 --platform managed --quiet
